@@ -10,7 +10,8 @@
 
 (InputTable as table, AsOfDate as date) as table =>
 let
-    // ISO week reference: Monday of ISO week 1 in year 2000
+    // ISO week reference anchor: Monday of ISO week 1 in year 2000.
+    // Any Monday works; 2000-01-03 is chosen for proximity to typical date ranges.
     ISOWeekRef = #date(2000, 1, 3),
 
     // As-of week start (Monday)
@@ -18,7 +19,7 @@ let
     AsOfWeekStart = Date.AddDays(AsOfDate, -AsOfWeekday),
     AsOfISOYearWeekIndex = Number.IntegerDivide(Duration.Days(AsOfWeekStart - ISOWeekRef), 7),
 
-    AddWeekOfYearISO = Table.AddColumn(InputTable, "WeekOfYearISO", each
+    AddISOWeekNumber = Table.AddColumn(InputTable, "ISOWeekNumber", each
         let
             // ISO year and week via Date.WeekOfYear is not ISO-compliant;
             // use the standard: Thursday of the current week determines the year.
@@ -31,7 +32,7 @@ let
         Int32.Type
     ),
 
-    AddISOYear = Table.AddColumn(AddWeekOfYearISO, "ISOYear", each
+    AddISOYear = Table.AddColumn(AddISOWeekNumber, "ISOYear", each
         let
             thursday = Date.AddDays([Date], 3 - Date.DayOfWeek([Date], Day.Monday))
         in
@@ -39,21 +40,21 @@ let
         Int32.Type
     ),
 
-    // WeekStartDate: Monday of the current ISO week
-    AddWeekStartDate = Table.AddColumn(AddISOYear, "WeekStartDate", each
+    // ISOWeekStartDate: Monday of the current ISO week
+    AddISOWeekStartDate = Table.AddColumn(AddISOYear, "ISOWeekStartDate", each
         Date.AddDays([Date], -Date.DayOfWeek([Date], Day.Monday)),
         type date
     ),
 
-    // WeekEndDate: Sunday of the current ISO week
-    AddWeekEndDate = Table.AddColumn(AddWeekStartDate, "WeekEndDate", each
-        Date.AddDays([WeekStartDate], 6),
+    // ISOWeekEndDate: Sunday of the current ISO week
+    AddISOWeekEndDate = Table.AddColumn(AddISOWeekStartDate, "ISOWeekEndDate", each
+        Date.AddDays([ISOWeekStartDate], 6),
         type date
     ),
 
     // ISOYearWeekIndex: contiguous week number relative to ISOWeekRef
-    AddISOYearWeekIndex = Table.AddColumn(AddWeekEndDate, "ISOYearWeekIndex", each
-        Number.IntegerDivide(Duration.Days([WeekStartDate] - ISOWeekRef), 7),
+    AddISOYearWeekIndex = Table.AddColumn(AddISOWeekEndDate, "ISOYearWeekIndex", each
+        Number.IntegerDivide(Duration.Days([ISOWeekStartDate] - ISOWeekRef), 7),
         Int32.Type
     ),
 

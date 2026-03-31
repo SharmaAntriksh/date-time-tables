@@ -101,13 +101,13 @@ let
     ),
 
     // --- Day/week within fiscal year ---
-    AddFWDayOfYearNumber = Table.AddColumn(AddFWYearLabel, "FWDayOfYearNumber", each
+    AddFWDayOfYear = Table.AddColumn(AddFWYearLabel, "FWDayOfYear", each
         Duration.Days([Date] - [FWStartOfYear]) + 1,
         Int32.Type
     ),
 
-    AddFWWeekNumber = Table.AddColumn(AddFWDayOfYearNumber, "FWWeekNumber", each
-        Number.IntegerDivide([FWDayOfYearNumber] - 1, 7) + 1,
+    AddFWWeekNumber = Table.AddColumn(AddFWDayOfYear, "FWWeekNumber", each
+        Number.IntegerDivide([FWDayOfYear] - 1, 7) + 1,
         Int32.Type
     ),
 
@@ -145,30 +145,30 @@ let
     ),
 
     // --- Contiguous indexes ---
-    AddFWYearQuarterNumber = Table.AddColumn(AddFWMonthNumber, "FWYearQuarterNumber", each
+    AddFWQuarterIndex = Table.AddColumn(AddFWMonthNumber, "FWQuarterIndex", each
         [FWYearNumber] * 4 - 1 + [FWQuarterNumber],
         Int32.Type
     ),
 
-    AddFWYearMonthNumber = Table.AddColumn(AddFWYearQuarterNumber, "FWYearMonthNumber", each
+    AddFWMonthIndex = Table.AddColumn(AddFWQuarterIndex, "FWMonthIndex", each
         [FWYearNumber] * 12 - 1 + [FWMonthNumber],
         Int32.Type
     ),
 
     // --- Weekday relative to first_day_of_week (1..7) ---
-    AddWeekDayNumber = Table.AddColumn(AddFWYearMonthNumber, "WeekDayNumber", each
+    AddFWWeekDayNumber = Table.AddColumn(AddFWMonthIndex, "FWWeekDayNumber", each
         WeekdayNum([Date]),
         Int32.Type
     ),
 
-    AddWeekDayNameShort = Table.AddColumn(AddWeekDayNumber, "WeekDayNameShort", each
+    AddFWWeekDayNameShort = Table.AddColumn(AddFWWeekDayNumber, "FWWeekDayNameShort", each
         Text.Start(Date.DayOfWeekName([Date]), 3),
         type text
     ),
 
     // --- Week start/end (relative to first_day_of_week) ---
-    AddFWStartOfWeek = Table.AddColumn(AddWeekDayNameShort, "FWStartOfWeek", each
-        Date.AddDays([Date], -([WeekDayNumber] - 1)),
+    AddFWStartOfWeek = Table.AddColumn(AddFWWeekDayNameShort, "FWStartOfWeek", each
+        Date.AddDays([Date], -([FWWeekDayNumber] - 1)),
         type date
     ),
 
@@ -178,59 +178,60 @@ let
     ),
 
     // --- Working day (Mon-Fri) ---
-    AddIsWorkingDay = Table.AddColumn(AddFWEndOfWeek, "IsWorkingDay", each
+    AddFWIsWorkingDay = Table.AddColumn(AddFWEndOfWeek, "FWIsWorkingDay", each
         let dow = Date.DayOfWeek([Date], Day.Monday) in dow >= 0 and dow <= 4,
         type logical
     ),
 
-    AddDayType = Table.AddColumn(AddIsWorkingDay, "DayType", each
-        if [IsWorkingDay] then "Working Day" else "Non-Working Day",
+    AddFWDayType = Table.AddColumn(AddFWIsWorkingDay, "FWDayType", each
+        if [FWIsWorkingDay] then "Working Day" else "Non-Working Day",
         type text
     ),
 
-    // --- FW Month boundaries (min/max date per FWYearMonthNumber) ---
+    // --- FW Month boundaries (min/max date per FWMonthIndex) ---
     MonthBounds = Table.Group(
-        Table.SelectColumns(AddDayType, {"Date", "FWYearMonthNumber"}),
-        {"FWYearMonthNumber"},
+        Table.SelectColumns(AddFWDayType, {"Date", "FWMonthIndex"}),
+        {"FWMonthIndex"},
         {{"FWMonthMin", each List.Min([Date]), type date},
          {"FWMonthMax", each List.Max([Date]), type date}}
     ),
 
-    JoinMonth = Table.NestedJoin(AddDayType, {"FWYearMonthNumber"}, MonthBounds, {"FWYearMonthNumber"}, "MB", JoinKind.LeftOuter),
+    JoinMonth = Table.NestedJoin(AddFWDayType, {"FWMonthIndex"}, MonthBounds, {"FWMonthIndex"}, "MB", JoinKind.LeftOuter),
     ExpandMonth = Table.ExpandTableColumn(JoinMonth, "MB", {"FWMonthMin", "FWMonthMax"}),
     RenameFWStartOfMonth = Table.RenameColumns(ExpandMonth, {{"FWMonthMin", "FWStartOfMonth"}, {"FWMonthMax", "FWEndOfMonth"}}),
 
-    AddFWDayOfMonthNumber = Table.AddColumn(RenameFWStartOfMonth, "FWDayOfMonthNumber", each
+    AddFWDayOfMonth = Table.AddColumn(RenameFWStartOfMonth, "FWDayOfMonth", each
         Duration.Days([Date] - [FWStartOfMonth]) + 1,
         Int32.Type
     ),
 
-    // --- FW Quarter boundaries (min/max date per FWYearQuarterNumber) ---
+    // --- FW Quarter boundaries (min/max date per FWQuarterIndex) ---
     QuarterBounds = Table.Group(
-        Table.SelectColumns(AddDayType, {"Date", "FWYearQuarterNumber"}),
-        {"FWYearQuarterNumber"},
+        Table.SelectColumns(AddFWDayType, {"Date", "FWQuarterIndex"}),
+        {"FWQuarterIndex"},
         {{"FWQtrMin", each List.Min([Date]), type date},
          {"FWQtrMax", each List.Max([Date]), type date}}
     ),
 
-    JoinQuarter = Table.NestedJoin(AddFWDayOfMonthNumber, {"FWYearQuarterNumber"}, QuarterBounds, {"FWYearQuarterNumber"}, "QB", JoinKind.LeftOuter),
+    JoinQuarter = Table.NestedJoin(AddFWDayOfMonth, {"FWQuarterIndex"}, QuarterBounds, {"FWQuarterIndex"}, "QB", JoinKind.LeftOuter),
     ExpandQuarter = Table.ExpandTableColumn(JoinQuarter, "QB", {"FWQtrMin", "FWQtrMax"}),
     RenameFWStartOfQuarter = Table.RenameColumns(ExpandQuarter, {{"FWQtrMin", "FWStartOfQuarter"}, {"FWQtrMax", "FWEndOfQuarter"}}),
 
-    AddFWDayOfQuarterNumber = Table.AddColumn(RenameFWStartOfQuarter, "FWDayOfQuarterNumber", each
+    AddFWDayOfQuarter = Table.AddColumn(RenameFWStartOfQuarter, "FWDayOfQuarter", each
         Duration.Days([Date] - [FWStartOfQuarter]) + 1,
         Int32.Type
     ),
 
-    // --- Global week index (DAX-like FWYearWeekNumber) ---
+    // Global week index anchor: 1900-12-30 is the Excel epoch (day 0);
+    // offset by FDOW so week boundaries align with the chosen first day of week.
     FirstWeekReference = Date.AddDays(#date(1900, 12, 30), FDOW),
-    AddFWYearWeekNumber = Table.AddColumn(AddFWDayOfQuarterNumber, "FWYearWeekNumber", each
+    AddFWWeekIndex = Table.AddColumn(AddFWDayOfQuarter, "FWWeekIndex", each
         Number.IntegerDivide(Duration.Days([Date] - FirstWeekReference), 7) + 1,
         Int32.Type
     ),
 
     // --- Labels ---
-    AddFWQuarterLabel = Table.AddColumn(AddFWYearWeekNumber, "FWQuarterLabel", each
+    AddFWQuarterLabel = Table.AddColumn(AddFWWeekIndex, "FWQuarterLabel", each
         "FQ" & Text.From([FWQuarterNumber]) & " - " & Text.From([FWYearNumber]),
         type text
     ),
@@ -252,7 +253,8 @@ let
     ),
 
     AddFWYearMonthLabel = Table.AddColumn(AddFWMonthLabel, "FWYearMonthLabel", each
-        "FM " & Text.Start(Date.MonthName(Date.AddDays([FWStartOfMonth], 14)), 3) & " " & Text.From(Date.Year(Date.AddDays([FWStartOfMonth], 14))),
+        let mid = Date.AddDays([FWStartOfMonth], 14) in
+        "FM " & Text.Start(Date.MonthName(mid), 3) & " " & Text.From(Date.Year(mid)),
         type text
     ),
 
@@ -276,19 +278,19 @@ let
     AsOfFWYearMonthIndex = AsOfFWYearNumber * 12 - 1 + AsOfFWMonth,
     AsOfFWYearQuarterIndex = AsOfFWYearNumber * 4 - 1 + AsOfFWQuarter,
 
-    AddFWYearWeekOffset = Table.AddColumn(AddFWYearMonthLabel, "FWYearWeekOffset", each
-        [FWYearWeekNumber] - AsOfFWYearWeekIndex,
+    AddFWWeekOffset = Table.AddColumn(AddFWYearMonthLabel, "FWWeekOffset", each
+        [FWWeekIndex] - AsOfFWYearWeekIndex,
         Int32.Type
     ),
 
-    AddFWYearMonthOffset = Table.AddColumn(AddFWYearWeekOffset, "FWYearMonthOffset", each
-        [FWYearMonthNumber] - AsOfFWYearMonthIndex,
+    AddFWMonthOffset = Table.AddColumn(AddFWWeekOffset, "FWMonthOffset", each
+        [FWMonthIndex] - AsOfFWYearMonthIndex,
         Int32.Type
     ),
 
-    AddFWYearQuarterOffset = Table.AddColumn(AddFWYearMonthOffset, "FWYearQuarterOffset", each
-        [FWYearQuarterNumber] - AsOfFWYearQuarterIndex,
+    AddFWQuarterOffset = Table.AddColumn(AddFWMonthOffset, "FWQuarterOffset", each
+        [FWQuarterIndex] - AsOfFWYearQuarterIndex,
         Int32.Type
     )
 in
-    AddFWYearQuarterOffset
+    AddFWQuarterOffset

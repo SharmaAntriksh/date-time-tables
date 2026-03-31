@@ -41,24 +41,24 @@ let
     ),
 
     // --- Labels ---
-    AddFiscalYearBin = Table.AddColumn(AddFiscalYear, "FiscalYearBin", each
+    AddFiscalYearRange = Table.AddColumn(AddFiscalYear, "FiscalYearRange", each
         if FYStartMonth = 1 then Text.From([FiscalYearStartYear])
         else Text.From([FiscalYearStartYear]) & "-" & Text.From([FiscalYear]),
         type text
     ),
 
-    AddFiscalYearLabel = Table.AddColumn(AddFiscalYearBin, "FiscalYearLabel", each
+    AddFiscalYearLabel = Table.AddColumn(AddFiscalYearRange, "FiscalYearLabel", each
         "FY " & Text.From([FiscalYear]),
         type text
     ),
 
-    AddFiscalQuarterName = Table.AddColumn(AddFiscalYearLabel, "FiscalQuarterName", each
+    AddFiscalQuarterLabel = Table.AddColumn(AddFiscalYearLabel, "FiscalQuarterLabel", each
         "Q" & Text.From([FiscalQuarterNumber]) & " FY" & Text.From([FiscalYear]),
         type text
     ),
 
     // --- Contiguous indexes ---
-    AddFiscalMonthIndex = Table.AddColumn(AddFiscalQuarterName, "FiscalMonthIndex", each
+    AddFiscalMonthIndex = Table.AddColumn(AddFiscalQuarterLabel, "FiscalMonthIndex", each
         [FiscalYearStartYear] * 12 + [FiscalMonthNumber],
         Int32.Type
     ),

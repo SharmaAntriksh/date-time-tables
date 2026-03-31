@@ -14,11 +14,6 @@ let
     // Excel serial-date epoch (1899-12-30) — intentional Lotus 1-2-3 leap-year bug
     ExcelEpoch = #date(1899, 12, 30),
 
-    // Clamp AsOfDate into the generated range
-    AsOf = if AsOfDate < StartDate then StartDate
-           else if AsOfDate > EndDate then EndDate
-           else AsOfDate,
-
     // Generate date list
     DayCount = Duration.Days(EndDate - StartDate) + 1,
     DateList = List.Dates(StartDate, DayCount, #duration(1, 0, 0, 0)),
@@ -39,15 +34,15 @@ let
     AddDateKey = Table.AddColumn(AddQuarter, "DateKey",
         each [Year] * 10000 + [Month] * 100 + [Day], Int64.Type),
 
-    // SequentialDayIndex: Excel-like serial number
-    AddSeqDay = Table.AddColumn(AddDateKey, "SequentialDayIndex",
+    // DateSerialNumber: Excel-like serial number
+    AddSeqDay = Table.AddColumn(AddDateKey, "DateSerialNumber",
         each Duration.Days([Date] - ExcelEpoch), Int32.Type),
 
     // --- Name columns ---
     AddMonthName  = Table.AddColumn(AddSeqDay,     "MonthName",  each Date.MonthName([Date]),       type text),
-    AddMonthShort = Table.AddColumn(AddMonthName,  "MonthShort", each Text.Start(Date.MonthName([Date]), 3), type text),
+    AddMonthShort = Table.AddColumn(AddMonthName,  "MonthShort", each Text.Start([MonthName], 3), type text),
     AddDayName    = Table.AddColumn(AddMonthShort, "DayName",    each Date.DayOfWeekName([Date]),    type text),
-    AddDayShort   = Table.AddColumn(AddDayName,    "DayShort",   each Text.Start(Date.DayOfWeekName([Date]), 3), type text),
+    AddDayShort   = Table.AddColumn(AddDayName,    "DayShort",   each Text.Start([DayName], 3), type text),
 
     // --- DayOfYear ---
     AddDayOfYear = Table.AddColumn(AddDayShort, "DayOfYear",
@@ -56,11 +51,11 @@ let
     // --- Composite labels ---
     AddMonthYear = Table.AddColumn(AddDayOfYear, "MonthYear",
         each [MonthShort] & " " & Text.From([Year]), type text),
-    AddMonthYearNumber = Table.AddColumn(AddMonthYear, "MonthYearNumber",
+    AddMonthYearKey = Table.AddColumn(AddMonthYear, "MonthYearKey",
         each [Year] * 100 + [Month], Int32.Type),
 
     // --- BI convenience keys ---
-    AddYearQuarterKey = Table.AddColumn(AddMonthYearNumber, "YearQuarterKey",
+    AddYearQuarterKey = Table.AddColumn(AddMonthYearKey, "YearQuarterKey",
         each [Year] * 10 + [Quarter], Int32.Type),
     AddQuarterYear = Table.AddColumn(AddYearQuarterKey, "QuarterYear",
         each "Q" & Text.From([Quarter]) & " " & Text.From([Year]), type text),
@@ -95,9 +90,9 @@ let
 
     // --- Boolean flags ---
     AddIsMonthStart   = Table.AddColumn(AddQuarterEndDate,  "IsMonthStart",   each [Day] = 1, type logical),
-    AddIsMonthEnd     = Table.AddColumn(AddIsMonthStart,    "IsMonthEnd",     each [Date] = Date.EndOfMonth([Date]), type logical),
-    AddIsQuarterStart = Table.AddColumn(AddIsMonthEnd,      "IsQuarterStart", each [Date] = Date.StartOfQuarter([Date]), type logical),
-    AddIsQuarterEnd   = Table.AddColumn(AddIsQuarterStart,  "IsQuarterEnd",   each [Date] = Date.EndOfQuarter([Date]), type logical),
+    AddIsMonthEnd     = Table.AddColumn(AddIsMonthStart,    "IsMonthEnd",     each [Date] = [MonthEndDate], type logical),
+    AddIsQuarterStart = Table.AddColumn(AddIsMonthEnd,      "IsQuarterStart", each [Date] = [QuarterStartDate], type logical),
+    AddIsQuarterEnd   = Table.AddColumn(AddIsQuarterStart,  "IsQuarterEnd",   each [Date] = [QuarterEndDate], type logical),
     AddIsYearStart    = Table.AddColumn(AddIsQuarterEnd,    "IsYearStart",    each [Month] = 1 and [Day] = 1, type logical),
     AddIsYearEnd      = Table.AddColumn(AddIsYearStart,     "IsYearEnd",      each [Month] = 12 and [Day] = 31, type logical),
 
@@ -135,48 +130,27 @@ let
     RenameBizDay = Table.RenameColumns(ExpandBizDay, {{"NextBD", "NextBusinessDay"}, {"PrevBD", "PreviousBusinessDay"}}),
 
     // --- As-of relative columns ---
-    AsOfQuarter = Date.QuarterOfYear(AsOf),
-    AsOfCalMonthIndex = Date.Year(AsOf) * 12 + Date.Month(AsOf),
-    AsOfCalQuarterIndex = Date.Year(AsOf) * 4 + AsOfQuarter,
+    AsOfQuarter = Date.QuarterOfYear(AsOfDate),
+    AsOfCalMonthIndex = Date.Year(AsOfDate) * 12 + Date.Month(AsOfDate),
+    AsOfCalQuarterIndex = Date.Year(AsOfDate) * 4 + AsOfQuarter,
 
     AddIsToday = Table.AddColumn(RenameBizDay, "IsToday",
-        each [Date] = AsOf, type logical),
+        each [Date] = AsOfDate, type logical),
     AddIsCurrentYear = Table.AddColumn(AddIsToday, "IsCurrentYear",
-        each [Year] = Date.Year(AsOf), type logical),
+        each [Year] = Date.Year(AsOfDate), type logical),
     AddIsCurrentMonth = Table.AddColumn(AddIsCurrentYear, "IsCurrentMonth",
-        each [Year] = Date.Year(AsOf) and [Month] = Date.Month(AsOf), type logical),
+        each [Year] = Date.Year(AsOfDate) and [Month] = Date.Month(AsOfDate), type logical),
     AddIsCurrentQuarter = Table.AddColumn(AddIsCurrentMonth, "IsCurrentQuarter",
-        each [Year] = Date.Year(AsOf) and [Quarter] = AsOfQuarter, type logical),
+        each [Year] = Date.Year(AsOfDate) and [Quarter] = AsOfQuarter, type logical),
 
     AddCurrentDayOffset = Table.AddColumn(AddIsCurrentQuarter, "CurrentDayOffset",
-        each Duration.Days([Date] - AsOf), Int32.Type),
+        each Duration.Days([Date] - AsOfDate), Int32.Type),
     AddYearOffset = Table.AddColumn(AddCurrentDayOffset, "YearOffset",
-        each [Year] - Date.Year(AsOf), Int32.Type),
+        each [Year] - Date.Year(AsOfDate), Int32.Type),
     AddCalMonthOffset = Table.AddColumn(AddYearOffset, "CalendarMonthOffset",
         each [CalendarMonthIndex] - AsOfCalMonthIndex, Int32.Type),
     AddCalQuarterOffset = Table.AddColumn(AddCalMonthOffset, "CalendarQuarterOffset",
         each [CalendarQuarterIndex] - AsOfCalQuarterIndex, Int32.Type),
 
-    // --- Final type enforcement ---
-    Result = Table.TransformColumnTypes(AddCalQuarterOffset, {
-        {"Date", type date},
-        {"DateKey", Int64.Type},
-        {"SequentialDayIndex", Int32.Type},
-        {"Year", Int32.Type},
-        {"Month", Int32.Type},
-        {"Day", Int32.Type},
-        {"Quarter", Int32.Type},
-        {"DayOfYear", Int32.Type},
-        {"MonthYearNumber", Int32.Type},
-        {"YearQuarterKey", Int32.Type},
-        {"CalendarMonthIndex", Int32.Type},
-        {"CalendarQuarterIndex", Int32.Type},
-        {"DayOfWeek", Int32.Type},
-        {"WeekOfMonth", Int32.Type},
-        {"CurrentDayOffset", Int32.Type},
-        {"YearOffset", Int32.Type},
-        {"CalendarMonthOffset", Int32.Type},
-        {"CalendarQuarterOffset", Int32.Type}
-    })
 in
-    Result
+    AddCalQuarterOffset
