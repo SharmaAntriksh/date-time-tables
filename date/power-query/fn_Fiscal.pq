@@ -74,9 +74,24 @@
             type text
         ),
 
+        // --- Fiscal month name (independent from calendar MonthName for Power BI sorting) ---
+        AddFiscalMonthName = Table.AddColumn (
+            AddFiscalQuarterLabel,
+            "FiscalMonthName",
+            each Date.MonthName ( [Date] ),
+            type text
+        ),
+
+        AddFiscalMonthShort = Table.AddColumn (
+            AddFiscalMonthName,
+            "FiscalMonthShort",
+            each Text.Start ( [FiscalMonthName], 3 ),
+            type text
+        ),
+
         // --- Contiguous indexes ---
         AddFiscalMonthIndex = Table.AddColumn (
-            AddFiscalQuarterLabel,
+            AddFiscalMonthShort,
             "FiscalMonthIndex",
             each [FiscalYearStartYear] * 12 + [FiscalMonthNumber],
             Int32.Type

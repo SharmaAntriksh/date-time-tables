@@ -31,7 +31,6 @@
     optional ColumnNamingStyle as text
 ) as table =>
     let
-
         // Shared parameter normalization
         FYStartMonth = List.Max ( { 1, List.Min ( { 12, FiscalStartMonth } ) } ),
         NormWeeklyType =
@@ -442,8 +441,20 @@
             each "Q" & Text.From ( [FiscalQuarterNumber] ) & " FY" & Text.From ( [FiscalYear] ),
             type text
         ),
-        AddFiscalMonthIndex = Table.AddColumn (
+        AddFiscalMonthName = Table.AddColumn (
             AddFiscalQuarterLabel,
+            "FiscalMonthName",
+            each Date.MonthName ( [Date] ),
+            type text
+        ),
+        AddFiscalMonthShort = Table.AddColumn (
+            AddFiscalMonthName,
+            "FiscalMonthShort",
+            each Text.Start ( [FiscalMonthName], 3 ),
+            type text
+        ),
+        AddFiscalMonthIndex = Table.AddColumn (
+            AddFiscalMonthShort,
             "FiscalMonthIndex",
             each [FiscalYearStartYear] * 12 + [FiscalMonthNumber],
             Int32.Type
@@ -1026,6 +1037,8 @@
             { "FiscalYearRange", "Fiscal Year Range" },
             { "FiscalYearLabel", "Fiscal Year Label" },
             { "FiscalQuarterLabel", "Fiscal Quarter Label" },
+            { "FiscalMonthName", "Fiscal Month Name" },
+            { "FiscalMonthShort", "Fiscal Month Short" },
             { "FiscalMonthIndex", "Fiscal Month Index" },
             { "FiscalQuarterIndex", "Fiscal Quarter Index" },
             { "FiscalYearStartDate", "Fiscal Year Start Date" },

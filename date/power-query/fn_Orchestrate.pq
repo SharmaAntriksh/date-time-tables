@@ -133,6 +133,8 @@
             { "FiscalYearRange", "Fiscal Year Range" },
             { "FiscalYearLabel", "Fiscal Year Label" },
             { "FiscalQuarterLabel", "Fiscal Quarter Label" },
+            { "FiscalMonthName", "Fiscal Month Name" },
+            { "FiscalMonthShort", "Fiscal Month Short" },
             { "FiscalMonthIndex", "Fiscal Month Index" },
             { "FiscalQuarterIndex", "Fiscal Quarter Index" },
             { "FiscalYearStartDate", "Fiscal Year Start Date" },
