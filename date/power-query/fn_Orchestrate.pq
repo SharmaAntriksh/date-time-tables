@@ -1,6 +1,6 @@
 /* 
     fn_Orchestrate - Orchestrator: calls fn_Calendar, fn_ISOWeeks, fn_Fiscal, fn_WeeklyFiscal
-        in sequence and appends the FiscalSystem / WeeklyFiscalSystem label columns.
+        in sequence and appends the WeeklyFiscalSystem label column when weekly fiscal is enabled.
 
     Prerequisites: the four fn_* queries must exist in the same Power BI model
     with the exact names: fn_Calendar, fn_ISOWeeks, fn_Fiscal, fn_WeeklyFiscal.
@@ -66,14 +66,11 @@
                 "Last",
         WFLabel = if IncludeWeeklyFiscal then "Weekly (" & NormQWT & " " & NormWType & ")" else "",
 
-        AddFiscalSystem = Table.AddColumn ( T4, "FiscalSystem", each "Monthly", type text ),
-
-        AddWeeklyFiscalSystem = Table.AddColumn (
-            AddFiscalSystem,
-            "WeeklyFiscalSystem",
-            each WFLabel,
-            type text
-        ),
+        AddWeeklyFiscalSystem =
+            if IncludeWeeklyFiscal then
+                Table.AddColumn ( T4, "WeeklyFiscalSystem", each WFLabel, type text )
+            else
+                T4,
 
         // Phase 5: Rename columns to user-friendly spaced names (default)
         UseSpacedNames = Text.Upper ( Text.Trim ( ColumnNamingStyle ?? "Spaced" ) ) <> "PASCALCASE",
@@ -182,8 +179,7 @@
             { "FWWeekOffset", "FW Week Offset" },
             { "FWMonthOffset", "FW Month Offset" },
             { "FWQuarterOffset", "FW Quarter Offset" },
-            // fn_Orchestrate
-            { "FiscalSystem", "Fiscal System" },
+            // Weekly fiscal system label
             { "WeeklyFiscalSystem", "Weekly Fiscal System" }
         },
 

@@ -281,9 +281,8 @@ PARAMETERS:
         [FWWeekOffset]          int         NULL,
         [FWMonthOffset]         int         NULL,
         [FWQuarterOffset]       int         NULL,
-        -- Phase 5: System Labels
-        [FiscalSystem]          nvarchar(10) NOT NULL,
-        [WeeklyFiscalSystem]    nvarchar(30) NOT NULL
+        -- Weekly fiscal system label
+        [WeeklyFiscalSystem]    nvarchar(30) NULL
     );
 
     ---------------------------------------------------------------------------
@@ -342,7 +341,7 @@ PARAMETERS:
         [FiscalQuarterStartDate],[FiscalQuarterEndDate],
         [IsFiscalYearStart],[IsFiscalYearEnd],[IsFiscalQuarterStart],[IsFiscalQuarterEnd],
         [FiscalMonthOffset],[FiscalQuarterOffset],
-        [FiscalSystem],[WeeklyFiscalSystem]
+        [WeeklyFiscalSystem]
     )
     SELECT
         -- Base Calendar
@@ -431,8 +430,7 @@ PARAMETERS:
         f.FMoIdx  - @AsOfFiscalMoIdx,
         f.FQtrIdx - @AsOfFiscalQtrIdx,
 
-        -- System Labels
-        N'Monthly',
+        -- Weekly fiscal system label
         @WFLabel
 
     FROM Parts p
@@ -771,9 +769,8 @@ PARAMETERS:
     (N'FWWeekOffset',         N'FW Week Offset',         4),
     (N'FWMonthOffset',        N'FW Month Offset',        4),
     (N'FWQuarterOffset',      N'FW Quarter Offset',      4),
-    -- Phase 5: System Labels
-    (N'FiscalSystem',         N'Fiscal System',          5),
-    (N'WeeklyFiscalSystem',   N'Weekly Fiscal System',   5);
+    -- Weekly fiscal system label
+    (N'WeeklyFiscalSystem',   N'Weekly Fiscal System',   4);
 
     -- Build dynamic column list
     DECLARE @colList nvarchar(max) = N'';

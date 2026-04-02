@@ -974,13 +974,11 @@
                 "Weekly (" & NormQuarterWeekType & " " & NormWeeklyType & ")"
             else
                 "",
-        AddFiscalSystem = Table.AddColumn ( T4, "FiscalSystem", each "Monthly", type text ),
-        AddWeeklyFiscalSystem = Table.AddColumn (
-            AddFiscalSystem,
-            "WeeklyFiscalSystem",
-            each WFLabel,
-            type text
-        ),
+        AddWeeklyFiscalSystem =
+            if IncludeWeeklyFiscal then
+                Table.AddColumn ( T4, "WeeklyFiscalSystem", each WFLabel, type text )
+            else
+                T4,
         UseSpacedNames = Text.Upper ( Text.Trim ( ColumnNamingStyle ?? "Spaced" ) ) <> "PASCALCASE",
         SpacedNameMap = {
 
@@ -1085,8 +1083,7 @@
             { "FWWeekOffset", "FW Week Offset" },
             { "FWMonthOffset", "FW Month Offset" },
             { "FWQuarterOffset", "FW Quarter Offset" },
-            // System labels
-            { "FiscalSystem", "Fiscal System" },
+            // Weekly fiscal system label
             { "WeeklyFiscalSystem", "Weekly Fiscal System" }
         },
         Result =
