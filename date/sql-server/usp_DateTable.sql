@@ -9,6 +9,8 @@
         @StartDate            date        - First date in the table
         @EndDate              date        - Last date in the table
         @AsOfDate             date        - Reference date for all relative offsets
+        @IncludeISO           bit         - 1 (default) to include ISO week columns
+        @IncludeFiscal        bit         - 1 (default) to include monthly fiscal columns
         @FiscalStartMonth     int         - First month of fiscal year (1-12)
         @IncludeWeeklyFiscal  bit         - 1 to include 4-4-5 weekly fiscal columns
         @FirstDayOfWeek       int         - 0=Sunday .. 6=Saturday (weekly fiscal)
@@ -18,7 +20,7 @@
         @ColumnNamingStyle    nvarchar(20)- 'Spaced' (default) or 'PascalCase'
         @OutputTable          nvarchar(256)- NULL (default) returns result set;
                                              if set, creates a persistent table (e.g. 'dbo.DateTable').
-                                             Errors if the table already exists.
+                                             Drops and recreates if the table already exists.
 
     Usage:
         -- Return as result set:
@@ -46,6 +48,8 @@ CREATE OR ALTER PROCEDURE dbo.usp_DateTable
     @StartDate            date         = NULL,
     @EndDate              date         = NULL,
     @AsOfDate             date         = NULL,
+    @IncludeISO           bit          = 1,
+    @IncludeFiscal        bit          = 1,
     @FiscalStartMonth     int          = 1,
     @IncludeWeeklyFiscal  bit          = 0,
     @FirstDayOfWeek       int          = 0,
@@ -105,6 +109,8 @@ PARAMETERS:
     @StartDate            date          First date in the table (required)
     @EndDate              date          Last date in the table (required)
     @AsOfDate             date          Reference date for relative offsets (required)
+    @IncludeISO           bit = 1       1 to include ISO week columns
+    @IncludeFiscal        bit = 1       1 to include monthly fiscal columns
     @FiscalStartMonth     int = 1       First month of fiscal year (1-12)
     @IncludeWeeklyFiscal  bit = 0       1 to include 4-4-5 weekly fiscal columns
     @FirstDayOfWeek       int = 0       0=Sunday .. 6=Saturday (weekly fiscal)
@@ -114,7 +120,7 @@ PARAMETERS:
     @ColumnNamingStyle    nvarchar = Spaced  ''Spaced'' or ''PascalCase''
     @OutputTable          nvarchar = NULL    NULL returns result set; set to create
                                              a persistent table (e.g. ''dbo.DimDate'').
-                                             Errors if the table already exists.
+                                             Drops and recreates if the table already exists.
     @Help                 bit = 0       1 to show this help text
 ';
         RETURN;
@@ -698,8 +704,9 @@ PARAMETERS:
     ---------------------------------------------------------------------------
     -- PHASE 5: Final output with column naming
     ---------------------------------------------------------------------------
+    DECLARE @NormStyle nvarchar(20) = UPPER(LTRIM(RTRIM(ISNULL(@ColumnNamingStyle, 'Spaced'))));
     DECLARE @UseSpacedNames bit = CASE
-        WHEN UPPER(LTRIM(RTRIM(ISNULL(@ColumnNamingStyle, 'Spaced')))) = 'PASCALCASE' THEN 0
+        WHEN @NormStyle LIKE 'PASCAL%' THEN 0
         ELSE 1 END;
 
     -- Column mapping: ordinal, PascalCase name, spaced name, phase (4 = weekly fiscal)
@@ -838,7 +845,10 @@ PARAMETERS:
             ELSE QUOTENAME(PascalName)
         END + N', '
     FROM @Cols
-    WHERE Phase <> 4 OR @IncludeWeeklyFiscal = 1
+    WHERE (Phase = 1)
+        OR (Phase = 2 AND @IncludeISO = 1)
+        OR (Phase = 3 AND @IncludeFiscal = 1)
+        OR (Phase = 4 AND @IncludeWeeklyFiscal = 1)
     ORDER BY Ordinal;
 
     -- Trim trailing comma
@@ -865,9 +875,8 @@ PARAMETERS:
 
         IF OBJECT_ID(@FullName) IS NOT NULL
         BEGIN
-            RAISERROR(N'Table %s already exists. Drop it first or choose a different name.', 16, 1, @FullName);
-            DROP TABLE #DateTable;
-            RETURN;
+            SET @sql = N'DROP TABLE ' + @FullName;
+            EXEC sp_executesql @sql;
         END;
 
         SET @sql = N'SELECT ' + @colList + N' INTO ' + @FullName + N' FROM #DateTable ORDER BY [Date]';
