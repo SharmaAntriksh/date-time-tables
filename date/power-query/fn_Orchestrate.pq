@@ -111,6 +111,12 @@
             { "IsCurrentQuarter", "Is Current Quarter" },
             { "CurrentDayOffset", "Current Day Offset" },
             { "YearOffset", "Year Offset" },
+            { "CalendarWeekStartDate", "Calendar Week Start Date" },
+            { "CalendarWeekEndDate", "Calendar Week End Date" },
+            { "CalendarWeekNumber", "Calendar Week Number" },
+            { "CalendarWeekIndex", "Calendar Week Index" },
+            { "CalendarWeekDateRange", "Calendar Week Date Range" },
+            { "CalendarWeekOffset", "Calendar Week Offset" },
             { "CalendarMonthOffset", "Calendar Month Offset" },
             { "CalendarQuarterOffset", "Calendar Quarter Offset" },
 
@@ -121,7 +127,8 @@
             { "ISOWeekEndDate", "ISO Week End Date" },
             { "ISOYearWeekIndex", "ISO Year Week Index" },
             { "ISOWeekOffset", "ISO Week Offset" },
-            
+            { "ISOWeekDateRange", "ISO Week Date Range" },
+
             // fn_Fiscal
             { "FiscalYearStartYear", "Fiscal Year Start Year" },
             { "FiscalMonthNumber", "Fiscal Month Number" },
@@ -176,6 +183,7 @@
             { "FWPeriodLabel", "FW Period Label" },
             { "FWMonthLabel", "FW Month Label" },
             { "FWYearMonthLabel", "FW Year Month Label" },
+            { "FWWeekDateRange", "FW Week Date Range" },
             { "FWWeekOffset", "FW Week Offset" },
             { "FWMonthOffset", "FW Month Offset" },
             { "FWQuarterOffset", "FW Quarter Offset" },

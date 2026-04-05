@@ -79,6 +79,17 @@
             "ISOWeekOffset",
             each [ISOYearWeekIndex] - AsOfISOYearWeekIndex,
             Int32.Type
+        ),
+
+        // ISOWeekDateRange: "Mon DD - Mon DD, YYYY"
+        AddISOWeekDateRange = Table.AddColumn (
+            AddISOWeekOffset,
+            "ISOWeekDateRange",
+            each
+                Date.ToText ( [ISOWeekStartDate], "MMM dd" )
+                    & " - "
+                    & Date.ToText ( [ISOWeekEndDate], "MMM dd, yyyy" ),
+            type text
         )
     in
-        AddISOWeekOffset
+        AddISOWeekDateRange

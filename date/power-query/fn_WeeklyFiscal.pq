@@ -362,6 +362,17 @@
             type text
         ),
 
+        // FWWeekDateRange: "Mon DD - Mon DD, YYYY"
+        AddFWWeekDateRange = Table.AddColumn (
+            AddFWYearMonthLabel,
+            "FWWeekDateRange",
+            each
+                Date.ToText ( [FWStartOfWeek], "MMM dd" )
+                    & " - "
+                    & Date.ToText ( [FWEndOfWeek], "MMM dd, yyyy" ),
+            type text
+        ),
+
         // --- Offsets relative to as-of ---
         AsOfFWYearWeekIndex =
             let
@@ -387,7 +398,7 @@
         AsOfFWYearMonthIndex = AsOfFWYearNumber * 12 - 1 + AsOfFWMonth,
         AsOfFWYearQuarterIndex = AsOfFWYearNumber * 4 - 1 + AsOfFWQuarter,
         AddFWWeekOffset = Table.AddColumn (
-            AddFWYearMonthLabel,
+            AddFWWeekDateRange,
             "FWWeekOffset",
             each [FWWeekIndex] - AsOfFWYearWeekIndex,
             Int32.Type

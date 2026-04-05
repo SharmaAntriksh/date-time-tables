@@ -159,6 +159,12 @@ PARAMETERS:
     DECLARE @AsOfCalMonthIndex   int = YEAR(@AsOfDate) * 12 + MONTH(@AsOfDate);
     DECLARE @AsOfCalQuarterIndex int = YEAR(@AsOfDate) * 4  + DATEPART(QUARTER, @AsOfDate);
 
+    -- Calendar week (Sunday-based): anchor is Sunday of calendar week 1 in year 2000
+    DECLARE @CalWeekRef        date = '2000-01-02';
+    DECLARE @AsOfDOW           int  = DATEDIFF(DAY, '19000107', @AsOfDate) % 7; -- 0=Sun..6=Sat
+    DECLARE @AsOfCalWeekStart  date = DATEADD(DAY, -@AsOfDOW, @AsOfDate);
+    DECLARE @AsOfCalWeekIndex  int  = DATEDIFF(DAY, @CalWeekRef, @AsOfCalWeekStart) / 7;
+
     -- ISO: anchor is Monday of ISO week 1 in year 2000 (any Monday works)
     DECLARE @ISOWeekRef       date = '2000-01-03';
     DECLARE @AsOfISOWeekStart date = CAST(DATEADD(DAY, -(DATEDIFF(DAY, 0, @AsOfDate) % 7), @AsOfDate) AS date);
@@ -208,6 +214,12 @@ PARAMETERS:
         [IsYearStart]           bit         NOT NULL,
         [IsYearEnd]             bit         NOT NULL,
         [WeekOfMonth]           int         NOT NULL,
+        [CalendarWeekStartDate] date        NOT NULL,
+        [CalendarWeekEndDate]   date        NOT NULL,
+        [CalendarWeekNumber]    int         NOT NULL,
+        [CalendarWeekIndex]     int         NOT NULL,
+        [CalendarWeekDateRange] nvarchar(30) NOT NULL,
+        [CalendarWeekOffset]    int         NOT NULL,
         [NextBusinessDay]       date        NOT NULL,
         [PreviousBusinessDay]   date        NOT NULL,
         [IsToday]               bit         NOT NULL,
@@ -225,6 +237,7 @@ PARAMETERS:
         [ISOWeekEndDate]        date        NOT NULL,
         [ISOYearWeekIndex]      int         NOT NULL,
         [ISOWeekOffset]         int         NOT NULL,
+        [ISOWeekDateRange]      nvarchar(30) NOT NULL,
         -- Phase 3: Monthly Fiscal
         [FiscalYearStartYear]   int         NOT NULL,
         [FiscalMonthNumber]     int         NOT NULL,
@@ -275,6 +288,7 @@ PARAMETERS:
         [FWWeekIndex]           int         NULL,
         [FWQuarterLabel]        nvarchar(20) NULL,
         [FWWeekLabel]           nvarchar(20) NULL,
+        [FWWeekDateRange]       nvarchar(30) NULL,
         [FWPeriodLabel]         nvarchar(20) NULL,
         [FWMonthLabel]          nvarchar(30) NULL,
         [FWYearMonthLabel]      nvarchar(30) NULL,
@@ -311,7 +325,10 @@ PARAMETERS:
             DAY(d)               AS dy,
             DATEPART(QUARTER, d) AS qtr,
             -- DayOfWeek: 0=Sun..6=Sat (DATEFIRST-independent)
-            DATEDIFF(DAY, '19000107', d) % 7 AS dow
+            DATEDIFF(DAY, '19000107', d) % 7 AS dow,
+            -- Calendar week boundaries (Sunday-based), materialised once
+            CAST(DATEADD(DAY, -(DATEDIFF(DAY, '19000107', d) % 7), d) AS date) AS cal_wk_start,
+            CAST(DATEADD(DAY, 6 - (DATEDIFF(DAY, '19000107', d) % 7), d) AS date) AS cal_wk_end
         FROM Spine
     )
     INSERT INTO #DateTable (
@@ -327,12 +344,16 @@ PARAMETERS:
         [IsMonthStart],[IsMonthEnd],[IsQuarterStart],[IsQuarterEnd],
         [IsYearStart],[IsYearEnd],
         [WeekOfMonth],
+        [CalendarWeekStartDate],[CalendarWeekEndDate],
+        [CalendarWeekNumber],[CalendarWeekIndex],
+        [CalendarWeekDateRange],[CalendarWeekOffset],
         [NextBusinessDay],[PreviousBusinessDay],
         [IsToday],[IsCurrentYear],[IsCurrentMonth],[IsCurrentQuarter],
         [CurrentDayOffset],[YearOffset],[CalendarMonthOffset],[CalendarQuarterOffset],
         [ISOWeekNumber],[ISOYear],
         [ISOWeekStartDate],[ISOWeekEndDate],
         [ISOYearWeekIndex],[ISOWeekOffset],
+        [ISOWeekDateRange],
         [FiscalYearStartYear],[FiscalMonthNumber],[FiscalQuarterNumber],
         [FiscalYear],[FiscalYearRange],[FiscalYearLabel],[FiscalQuarterLabel],
         [FiscalMonthName],[FiscalMonthShort],
@@ -377,6 +398,20 @@ PARAMETERS:
         CASE WHEN p.mo = 1 AND p.dy = 1 THEN 1 ELSE 0 END,
         CASE WHEN p.mo = 12 AND p.dy = 31 THEN 1 ELSE 0 END,
         (p.dy - 1) / 7 + 1,
+        -- CalendarWeek (Sunday-based) — uses p.cal_wk_start / p.cal_wk_end from Parts CTE
+        p.cal_wk_start,
+        p.cal_wk_end,
+        (DATEPART(DAYOFYEAR, p.d)
+            + (DATEDIFF(DAY, '19000107', DATEFROMPARTS(p.yr, 1, 1)) % 7)
+            - 1) / 7 + 1,
+        DATEDIFF(DAY, @CalWeekRef, p.cal_wk_start) / 7,
+        LEFT(DATENAME(MONTH, p.cal_wk_start), 3)
+            + ' ' + RIGHT('0' + CAST(DAY(p.cal_wk_start) AS varchar(2)), 2)
+            + ' - '
+            + LEFT(DATENAME(MONTH, p.cal_wk_end), 3)
+            + ' ' + RIGHT('0' + CAST(DAY(p.cal_wk_end) AS varchar(2)), 2)
+            + ', ' + CAST(YEAR(p.cal_wk_end) AS varchar(4)),
+        DATEDIFF(DAY, @CalWeekRef, p.cal_wk_start) / 7 - @AsOfCalWeekIndex,
         -- NextBusinessDay
         CASE p.dow
             WHEN 5 THEN DATEADD(DAY, 3, p.d)
@@ -400,9 +435,15 @@ PARAMETERS:
         DATEPART(ISO_WEEK, p.d),
         iso.ISOYear,
         iso.ISOWeekStart,
-        DATEADD(DAY, 6, iso.ISOWeekStart),
+        iso.ISOWeekEnd,
         DATEDIFF(DAY, @ISOWeekRef, iso.ISOWeekStart) / 7,
         DATEDIFF(DAY, @ISOWeekRef, iso.ISOWeekStart) / 7 - @AsOfISOWeekIndex,
+        LEFT(DATENAME(MONTH, iso.ISOWeekStart), 3)
+            + ' ' + RIGHT('0' + CAST(DAY(iso.ISOWeekStart) AS varchar(2)), 2)
+            + ' - '
+            + LEFT(DATENAME(MONTH, iso.ISOWeekEnd), 3)
+            + ' ' + RIGHT('0' + CAST(DAY(iso.ISOWeekEnd) AS varchar(2)), 2)
+            + ', ' + CAST(YEAR(iso.ISOWeekEnd) AS varchar(4)),
 
         -- Monthly Fiscal
         f.FYStartYr,
@@ -439,6 +480,7 @@ PARAMETERS:
         SELECT
             -- Monday of ISO week (1900-01-01 = Monday, so DATEDIFF(DAY,0,d)%7 = 0=Mon..6=Sun)
             CAST(DATEADD(DAY, -(DATEDIFF(DAY, 0, p.d) % 7), p.d) AS date) AS ISOWeekStart,
+            CAST(DATEADD(DAY, 6 - (DATEDIFF(DAY, 0, p.d) % 7), p.d) AS date) AS ISOWeekEnd,
             CASE
                 WHEN p.mo = 1  AND DATEPART(ISO_WEEK, p.d) >= 52 THEN p.yr - 1
                 WHEN p.mo = 12 AND DATEPART(ISO_WEEK, p.d) = 1   THEN p.yr + 1
@@ -639,6 +681,12 @@ PARAMETERS:
                 + N' - ' + CAST(FWYearNumber AS varchar(4)),
             FWYearMonthLabel = N'FM ' + LEFT(DATENAME(MONTH, DATEADD(DAY, 14, FWStartOfMonth)), 3)
                 + N' ' + CAST(YEAR(DATEADD(DAY, 14, FWStartOfMonth)) AS varchar(4)),
+            FWWeekDateRange = LEFT(DATENAME(MONTH, FWStartOfWeek), 3)
+                + N' ' + RIGHT('0' + CAST(DAY(FWStartOfWeek) AS varchar(2)), 2)
+                + N' - '
+                + LEFT(DATENAME(MONTH, FWEndOfWeek), 3)
+                + N' ' + RIGHT('0' + CAST(DAY(FWEndOfWeek) AS varchar(2)), 2)
+                + N', ' + CAST(YEAR(FWEndOfWeek) AS varchar(4)),
             FWWeekOffset    = FWWeekIndex    - @AsOfFWWkIdx,
             FWMonthOffset   = FWMonthIndex   - @AsOfFWMoIdx,
             FWQuarterOffset = FWQuarterIndex - @AsOfFWQtrIdx
@@ -696,6 +744,12 @@ PARAMETERS:
     (N'IsYearStart',          N'Is Year Start',          1),
     (N'IsYearEnd',            N'Is Year End',            1),
     (N'WeekOfMonth',          N'Week of Month',          1),
+    (N'CalendarWeekStartDate',N'Calendar Week Start Date',1),
+    (N'CalendarWeekEndDate',  N'Calendar Week End Date', 1),
+    (N'CalendarWeekNumber',   N'Calendar Week Number',   1),
+    (N'CalendarWeekIndex',    N'Calendar Week Index',    1),
+    (N'CalendarWeekDateRange',N'Calendar Week Date Range',1),
+    (N'CalendarWeekOffset',   N'Calendar Week Offset',   1),
     (N'NextBusinessDay',      N'Next Business Day',      1),
     (N'PreviousBusinessDay',  N'Previous Business Day',  1),
     (N'IsToday',              N'Is Today',               1),
@@ -713,6 +767,7 @@ PARAMETERS:
     (N'ISOWeekEndDate',       N'ISO Week End Date',      2),
     (N'ISOYearWeekIndex',     N'ISO Year Week Index',    2),
     (N'ISOWeekOffset',        N'ISO Week Offset',        2),
+    (N'ISOWeekDateRange',     N'ISO Week Date Range',    2),
     -- Phase 3: Monthly Fiscal
     (N'FiscalYearStartYear',  N'Fiscal Year Start Year', 3),
     (N'FiscalMonthNumber',    N'Fiscal Month Number',    3),
@@ -763,6 +818,7 @@ PARAMETERS:
     (N'FWWeekIndex',          N'FW Week Index',          4),
     (N'FWQuarterLabel',       N'FW Quarter Label',       4),
     (N'FWWeekLabel',          N'FW Week Label',          4),
+    (N'FWWeekDateRange',      N'FW Week Date Range',     4),
     (N'FWPeriodLabel',        N'FW Period Label',        4),
     (N'FWMonthLabel',         N'FW Month Label',         4),
     (N'FWYearMonthLabel',     N'FW Year Month Label',    4),

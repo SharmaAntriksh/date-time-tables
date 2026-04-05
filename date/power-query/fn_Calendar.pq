@@ -203,6 +203,64 @@
             each Number.IntegerDivide ( [Day] - 1, 7 ) + 1,
             Int32.Type
         ),
+        // --- Calendar week (Sunday-based) ---
+        // Reference anchor: Sunday of calendar week 1 in year 2000
+        CalWeekRef = #date ( 2000, 1, 2 ),
+
+        AddCalWeekStartDate = Table.AddColumn (
+            AddWeekOfMonth,
+            "CalendarWeekStartDate",
+            each Date.AddDays ( [Date], - [DayOfWeek] ),
+            type date
+        ),
+        AddCalWeekEndDate = Table.AddColumn (
+            AddCalWeekStartDate,
+            "CalendarWeekEndDate",
+            each Date.AddDays ( [CalendarWeekStartDate], 6 ),
+            type date
+        ),
+        AddCalWeekNumber = Table.AddColumn (
+            AddCalWeekEndDate,
+            "CalendarWeekNumber",
+            each
+                let
+                    jan1 = #date ( [Year], 1, 1 ),
+                    jan1DayOfWeek = Date.DayOfWeek ( jan1, Day.Sunday )
+                in
+                    Number.IntegerDivide ( [DayOfYear] + jan1DayOfWeek - 1, 7 ) + 1,
+            Int32.Type
+        ),
+        AddCalWeekIndex = Table.AddColumn (
+            AddCalWeekNumber,
+            "CalendarWeekIndex",
+            each Number.IntegerDivide (
+                Duration.Days ( [CalendarWeekStartDate] - CalWeekRef ), 7
+            ),
+            Int32.Type
+        ),
+        AddCalWeekDateRange = Table.AddColumn (
+            AddCalWeekIndex,
+            "CalendarWeekDateRange",
+            each
+                Date.ToText ( [CalendarWeekStartDate], "MMM dd" )
+                    & " - "
+                    & Date.ToText ( [CalendarWeekEndDate], "MMM dd, yyyy" ),
+            type text
+        ),
+
+        // As-of calendar week offset
+        AsOfDayOfWeek = Date.DayOfWeek ( AsOfDate, Day.Sunday ),
+        AsOfCalWeekStart = Date.AddDays ( AsOfDate, - AsOfDayOfWeek ),
+        AsOfCalWeekIndex = Number.IntegerDivide (
+            Duration.Days ( AsOfCalWeekStart - CalWeekRef ), 7
+        ),
+        AddCalWeekOffset = Table.AddColumn (
+            AddCalWeekDateRange,
+            "CalendarWeekOffset",
+            each [CalendarWeekIndex] - AsOfCalWeekIndex,
+            Int32.Type
+        ),
+
         // --- Next/Previous Business Day ---
         // Build a lookup table: each date maps to its next and previous business day.
         // Uses day-offset arithmetic instead of per-row list scans.
@@ -248,7 +306,7 @@
             in
                 Table.Buffer ( Tbl ),
         AddNextBizDay = Table.NestedJoin (
-            AddWeekOfMonth,
+            AddCalWeekOffset,
             { "Date" },
             BizDayLookup,
             { "Date" },

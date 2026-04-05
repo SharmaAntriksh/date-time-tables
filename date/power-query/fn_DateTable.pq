@@ -231,6 +231,59 @@
             each Number.IntegerDivide ( [Day] - 1, 7 ) + 1,
             Int32.Type
         ),
+        // --- Calendar week (Sunday-based) ---
+        CalWeekRef = #date ( 2000, 1, 2 ),
+        AddCalWeekStartDate = Table.AddColumn (
+            AddWeekOfMonth,
+            "CalendarWeekStartDate",
+            each Date.AddDays ( [Date], - [DayOfWeek] ),
+            type date
+        ),
+        AddCalWeekEndDate = Table.AddColumn (
+            AddCalWeekStartDate,
+            "CalendarWeekEndDate",
+            each Date.AddDays ( [CalendarWeekStartDate], 6 ),
+            type date
+        ),
+        AddCalWeekNumber = Table.AddColumn (
+            AddCalWeekEndDate,
+            "CalendarWeekNumber",
+            each
+                let
+                    jan1 = #date ( [Year], 1, 1 ),
+                    jan1DayOfWeek = Date.DayOfWeek ( jan1, Day.Sunday )
+                in
+                    Number.IntegerDivide ( [DayOfYear] + jan1DayOfWeek - 1, 7 ) + 1,
+            Int32.Type
+        ),
+        AddCalWeekIndex = Table.AddColumn (
+            AddCalWeekNumber,
+            "CalendarWeekIndex",
+            each Number.IntegerDivide (
+                Duration.Days ( [CalendarWeekStartDate] - CalWeekRef ), 7
+            ),
+            Int32.Type
+        ),
+        AddCalWeekDateRange = Table.AddColumn (
+            AddCalWeekIndex,
+            "CalendarWeekDateRange",
+            each
+                Date.ToText ( [CalendarWeekStartDate], "MMM dd" )
+                    & " - "
+                    & Date.ToText ( [CalendarWeekEndDate], "MMM dd, yyyy" ),
+            type text
+        ),
+        AsOfDayOfWeek = Date.DayOfWeek ( AsOfDate, Day.Sunday ),
+        AsOfCalWeekStart = Date.AddDays ( AsOfDate, - AsOfDayOfWeek ),
+        AsOfCalWeekIndex = Number.IntegerDivide (
+            Duration.Days ( AsOfCalWeekStart - CalWeekRef ), 7
+        ),
+        AddCalWeekOffset = Table.AddColumn (
+            AddCalWeekDateRange,
+            "CalendarWeekOffset",
+            each [CalendarWeekIndex] - AsOfCalWeekIndex,
+            Int32.Type
+        ),
         // Next/Previous Business Day via lookup join
         BizDayLookup =
             let
@@ -268,7 +321,7 @@
             in
                 Table.Buffer ( Tbl ),
         AddNextBizDay = Table.NestedJoin (
-            AddWeekOfMonth,
+            AddCalWeekOffset,
             { "Date" },
             BizDayLookup,
             { "Date" },
@@ -391,12 +444,21 @@
             each [ISOYearWeekIndex] - AsOfISOYearWeekIndex,
             Int32.Type
         ),
+        AddISOWeekDateRange = Table.AddColumn (
+            AddISOWeekOffset,
+            "ISOWeekDateRange",
+            each
+                Date.ToText ( [ISOWeekStartDate], "MMM dd" )
+                    & " - "
+                    & Date.ToText ( [ISOWeekEndDate], "MMM dd, yyyy" ),
+            type text
+        ),
         // ═══════════════════════════════════════════════════════════════
         // PHASE 3 — MONTHLY FISCAL
         // ═══════════════════════════════════════════════════════════════
         FYEndAdd = if FYStartMonth = 1 then 0 else 1,
         AddFiscalYearStartYear = Table.AddColumn (
-            AddISOWeekOffset,
+            AddISOWeekDateRange,
             "FiscalYearStartYear",
             each if [Month] >= FYStartMonth then [Year] else [Year] - 1,
             Int32.Type
@@ -944,8 +1006,17 @@
                     AsOfFWMonth = ( AsOfFWQuarter - 1 ) * 3 + AsOfMonthInQ,
                     AsOfFWYearMonthIndex = AsOfFWYearNumber * 12 - 1 + AsOfFWMonth,
                     AsOfFWYearQuarterIndex = AsOfFWYearNumber * 4 - 1 + AsOfFWQuarter,
-                    AddFWWeekOffset = Table.AddColumn (
+                    AddFWWeekDateRange = Table.AddColumn (
                         AddFWYearMonthLabel,
+                        "FWWeekDateRange",
+                        each
+                            Date.ToText ( [FWStartOfWeek], "MMM dd" )
+                                & " - "
+                                & Date.ToText ( [FWEndOfWeek], "MMM dd, yyyy" ),
+                        type text
+                    ),
+                    AddFWWeekOffset = Table.AddColumn (
+                        AddFWWeekDateRange,
                         "FWWeekOffset",
                         each [FWWeekIndex] - AsOfFWYearWeekIndex,
                         Int32.Type
@@ -1018,6 +1089,12 @@
             { "IsCurrentQuarter", "Is Current Quarter" },
             { "CurrentDayOffset", "Current Day Offset" },
             { "YearOffset", "Year Offset" },
+            { "CalendarWeekStartDate", "Calendar Week Start Date" },
+            { "CalendarWeekEndDate", "Calendar Week End Date" },
+            { "CalendarWeekNumber", "Calendar Week Number" },
+            { "CalendarWeekIndex", "Calendar Week Index" },
+            { "CalendarWeekDateRange", "Calendar Week Date Range" },
+            { "CalendarWeekOffset", "Calendar Week Offset" },
             { "CalendarMonthOffset", "Calendar Month Offset" },
             { "CalendarQuarterOffset", "Calendar Quarter Offset" },
             // ISO weeks
@@ -1027,6 +1104,7 @@
             { "ISOWeekEndDate", "ISO Week End Date" },
             { "ISOYearWeekIndex", "ISO Year Week Index" },
             { "ISOWeekOffset", "ISO Week Offset" },
+            { "ISOWeekDateRange", "ISO Week Date Range" },
             // Monthly fiscal
             { "FiscalYearStartYear", "Fiscal Year Start Year" },
             { "FiscalMonthNumber", "Fiscal Month Number" },
@@ -1077,6 +1155,7 @@
             { "FWWeekIndex", "FW Week Index" },
             { "FWQuarterLabel", "FW Quarter Label" },
             { "FWWeekLabel", "FW Week Label" },
+            { "FWWeekDateRange", "FW Week Date Range" },
             { "FWPeriodLabel", "FW Period Label" },
             { "FWMonthLabel", "FW Month Label" },
             { "FWYearMonthLabel", "FW Year Month Label" },

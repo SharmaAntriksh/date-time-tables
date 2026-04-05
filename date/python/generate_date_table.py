@@ -33,6 +33,14 @@ _EXCEL_EPOCH = pd.Timestamp("1899-12-30")
 # ISO week reference: Monday of ISO week 1 in year 2000.
 _ISO_WEEK_REF = pd.Timestamp("2000-01-03")
 
+# Calendar week reference: Sunday of calendar week 1 in year 2000.
+_CAL_WEEK_REF = pd.Timestamp("2000-01-02")
+
+
+def _format_week_date_range(start_dates: pd.Series, end_dates: pd.Series) -> pd.Series:
+    """Format week date ranges as ``'Mon DD - Mon DD, YYYY'``."""
+    return start_dates.dt.strftime("%b %d") + " - " + end_dates.dt.strftime("%b %d, %Y")
+
 
 # =====================================================================
 # Configuration dataclass
@@ -120,6 +128,26 @@ def _add_calendar_columns(df: pd.DataFrame, *, as_of: pd.Timestamp) -> pd.DataFr
 
     df["WeekOfMonth"] = ((df["Day"] - 1) // 7 + 1).astype(np.int32)
 
+    # Calendar week (Sunday-based)
+    df["CalendarWeekStartDate"] = (df["Date"] - pd.to_timedelta(df["DayOfWeek"], unit="D")).dt.normalize()
+    df["CalendarWeekEndDate"] = (df["CalendarWeekStartDate"] + pd.Timedelta(days=6)).dt.normalize()
+
+    unique_years = df["Year"].unique()
+    jan1_timestamps = pd.to_datetime(unique_years.astype(str) + "-01-01")
+    jan1_sun0 = ((jan1_timestamps.weekday + 1) % 7).astype(int)
+    year_to_jan1_sun0 = pd.Series(jan1_sun0, index=unique_years)
+    jan1_mapped = df["Year"].map(year_to_jan1_sun0)
+    df["CalendarWeekNumber"] = ((df["DayOfYear"].astype(int) + jan1_mapped - 1) // 7 + 1).astype(np.int32)
+
+    df["CalendarWeekIndex"] = (((df["CalendarWeekStartDate"] - _CAL_WEEK_REF).dt.days) // 7).astype(np.int32)
+    as_of_cal_week_start = (as_of - pd.Timedelta(days=int((as_of.weekday() + 1) % 7))).normalize()
+    as_of_cal_week_index = int(((as_of_cal_week_start - _CAL_WEEK_REF).days) // 7)
+    df["CalendarWeekOffset"] = (df["CalendarWeekIndex"].astype(int) - as_of_cal_week_index).astype(np.int32)
+
+    df["CalendarWeekDateRange"] = _format_week_date_range(
+        df["CalendarWeekStartDate"], df["CalendarWeekEndDate"],
+    )
+
     # Next/Previous Business Day (strict: excludes the current date)
     biz_dates = df.loc[df["IsBusinessDay"] == 1, "Date"].to_numpy(dtype="datetime64[D]")
     date_vals = df["Date"].to_numpy(dtype="datetime64[D]")
@@ -176,6 +204,10 @@ def _add_iso_columns(df: pd.DataFrame, *, as_of: pd.Timestamp) -> pd.DataFrame:
     as_of_week_start = (as_of - pd.Timedelta(days=int(as_of.weekday()))).normalize()
     as_of_iso_year_week_index = int(((as_of_week_start - _ISO_WEEK_REF).days) // 7)
     df["ISOWeekOffset"] = (df["ISOYearWeekIndex"].astype(int) - as_of_iso_year_week_index).astype(np.int32)
+
+    df["ISOWeekDateRange"] = _format_week_date_range(
+        df["ISOWeekStartDate"], df["ISOWeekEndDate"],
+    )
 
     return df
 
@@ -481,6 +513,7 @@ def _add_weekly_fiscal_columns(
     y = fw_year_s.astype(str)
     fw_quarter_label = "FQ" + fw_quarter_s.astype(str) + " - " + y
     fw_week_label = "FW" + fw_week.astype(str).str.zfill(2) + " - " + y
+    fw_week_date_range = _format_week_date_range(fw_start_week, fw_end_week)
     fw_period_label = (
         "P"
         + pd.Series(fw_period, index=df.index).astype(str).str.zfill(2)
@@ -523,6 +556,7 @@ def _add_weekly_fiscal_columns(
             "FWWeekIndex": fw_year_week,
             "FWQuarterLabel": fw_quarter_label,
             "FWWeekLabel": fw_week_label,
+            "FWWeekDateRange": fw_week_date_range,
             "FWPeriodLabel": fw_period_label,
             "FWMonthLabel": fw_month_label,
             "FWYearMonthLabel": fw_year_month_label,
@@ -577,6 +611,8 @@ _BASE_COLS = [
     "YearQuarterKey",
     "CalendarMonthIndex", "CalendarQuarterIndex",
     "WeekOfMonth",
+    "CalendarWeekNumber", "CalendarWeekStartDate", "CalendarWeekEndDate",
+    "CalendarWeekDateRange", "CalendarWeekIndex", "CalendarWeekOffset",
     "Day", "DayName", "DayShort", "DayOfYear", "DayOfWeek",
     "IsWeekend", "IsBusinessDay",
     "NextBusinessDay", "PreviousBusinessDay",
@@ -592,7 +628,7 @@ _CALENDAR_COLS = [
 
 _ISO_COLS = [
     "ISOWeekNumber", "ISOYear", "ISOYearWeekIndex", "ISOWeekOffset",
-    "ISOWeekStartDate", "ISOWeekEndDate",
+    "ISOWeekStartDate", "ISOWeekEndDate", "ISOWeekDateRange",
 ]
 
 _FISCAL_COLS = [
@@ -612,7 +648,7 @@ _WEEKLY_FISCAL_COLS = [
     "FWQuarterIndex", "FWQuarterOffset",
     "FWMonthNumber", "FWMonthLabel",
     "FWMonthIndex", "FWMonthOffset",
-    "FWWeekNumber", "FWWeekLabel",
+    "FWWeekNumber", "FWWeekLabel", "FWWeekDateRange",
     "FWWeekIndex", "FWWeekOffset",
     "FWPeriodNumber", "FWPeriodLabel",
     "FWStartOfYear", "FWEndOfYear",
