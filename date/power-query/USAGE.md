@@ -83,7 +83,7 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 
 ## Column Reference
 
-### Phase 1: Base Calendar (48 columns)
+### Phase 1: Base Calendar (58 columns)
 
 | Column (Spaced) | Column (PascalCase) | Type | Description |
 |---|---|---|---|
@@ -99,6 +99,7 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 | Day Name | DayName | text | "Monday" |
 | Day Short | DayShort | text | "Mon" |
 | Day of Year | DayOfYear | int | 1-366 |
+| Day of Quarter | DayOfQuarter | int | Day within calendar quarter |
 | Month Year | MonthYear | text | "Jan 2025" |
 | Month Year Key | MonthYearKey | int | YYYYMM |
 | Year Quarter Key | YearQuarterKey | int | YYYYQ |
@@ -112,6 +113,11 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 | Month End Date | MonthEndDate | date | Last day of month |
 | Quarter Start Date | QuarterStartDate | date | First day of quarter |
 | Quarter End Date | QuarterEndDate | date | Last day of quarter |
+| Year Start Date | YearStartDate | date | January 1 of the year |
+| Year End Date | YearEndDate | date | December 31 of the year |
+| Month Days | MonthDays | int | Number of days in the month |
+| Quarter Days | QuarterDays | int | Number of days in the quarter |
+| Year Days | YearDays | int | Number of days in the year |
 | Is Month Start | IsMonthStart | logical | First day of month |
 | Is Month End | IsMonthEnd | logical | Last day of month |
 | Is Quarter Start | IsQuarterStart | logical | First day of quarter |
@@ -135,6 +141,10 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 | Year Offset | YearOffset | int | Years from AsOfDate |
 | Calendar Month Offset | CalendarMonthOffset | int | Months from AsOfDate |
 | Calendar Quarter Offset | CalendarQuarterOffset | int | Quarters from AsOfDate |
+| Date Previous Week | DatePreviousWeek | date | Same weekday, 7 days ago |
+| Date Previous Month | DatePreviousMonth | date | Same day in previous month (clamped) |
+| Date Previous Quarter | DatePreviousQuarter | date | Same day in previous quarter (clamped) |
+| Date Previous Year | DatePreviousYear | date | Same day in previous year (clamped) |
 
 ### Phase 2: ISO Weeks (7 columns)
 
@@ -148,7 +158,7 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 | ISO Week Offset | ISOWeekOffset | int | ISO weeks from AsOfDate |
 | ISO Week Date Range | ISOWeekDateRange | text | "Jan 06 - Jan 12, 2025" |
 
-### Phase 3: Monthly Fiscal (20 columns)
+### Phase 3: Monthly Fiscal (25 columns)
 
 | Column (Spaced) | Column (PascalCase) | Type | Description |
 |---|---|---|---|
@@ -173,8 +183,13 @@ Set `IncludeWeeklyFiscal` to `false`. ISO and fiscal columns are always included
 | Is Fiscal Quarter End | IsFiscalQuarterEnd | logical | Last day of fiscal quarter |
 | Fiscal Month Offset | FiscalMonthOffset | int | Fiscal months from AsOfDate |
 | Fiscal Quarter Offset | FiscalQuarterOffset | int | Fiscal quarters from AsOfDate |
+| Fiscal Quarter Days | FiscalQuarterDays | int | Days in the fiscal quarter |
+| Fiscal Year Days | FiscalYearDays | int | Days in the fiscal year |
+| Fiscal Day of Quarter | FiscalDayOfQuarter | int | Day within fiscal quarter |
+| Fiscal Day of Year | FiscalDayOfYear | int | Day within fiscal year |
+| Fiscal Year Offset | FiscalYearOffset | int | Fiscal years from AsOfDate |
 
-### Phase 4: Weekly Fiscal (35 + 1 columns)
+### Phase 4: Weekly Fiscal (40 + 1 columns)
 
 Only present when `IncludeWeeklyFiscal = true`.
 
@@ -214,11 +229,16 @@ Only present when `IncludeWeeklyFiscal = true`.
 | FW Week Offset | FWWeekOffset | int | WF weeks from AsOfDate |
 | FW Month Offset | FWMonthOffset | int | WF months from AsOfDate |
 | FW Quarter Offset | FWQuarterOffset | int | WF quarters from AsOfDate |
+| FW Month Days | FWMonthDays | int | Days in the WF month (28 or 35) |
+| FW Quarter Days | FWQuarterDays | int | Days in the WF quarter (91 or 98) |
+| FW Year Days | FWYearDays | int | Days in the WF year (364 or 371) |
+| FW Date Previous Month | FWDatePreviousMonth | date | Same day in previous WF month (clamped) |
+| FW Date Previous Quarter | FWDatePreviousQuarter | date | Same day in previous WF quarter (clamped) |
 | Weekly Fiscal System | WeeklyFiscalSystem | text | "Weekly (445 Last)" |
 
 ## Column Counts
 
 | Configuration | Columns |
 |---|---|
-| Default (no weekly fiscal) | 75 |
-| With weekly fiscal | 111 |
+| Default (no weekly fiscal) | 90 |
+| With weekly fiscal | 131 |

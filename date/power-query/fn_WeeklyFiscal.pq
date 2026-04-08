@@ -414,6 +414,98 @@
             "FWQuarterOffset",
             each [FWQuarterIndex] - AsOfFWYearQuarterIndex,
             Int32.Type
+        ),
+
+        // --- FW period duration columns (derived from week pattern) ---
+        W3 = 13 - W1 - W2,
+
+        AddFWMonthDays = Table.AddColumn (
+            AddFWQuarterOffset,
+            "FWMonthDays",
+            each
+                let
+                    mInQ = if [FWWeekInQuarterNumber] <= W1 then 1
+                           else if [FWWeekInQuarterNumber] <= ( W1 + W2 ) then 2
+                           else 3,
+                    baseWeeks = if mInQ = 1 then W1 else if mInQ = 2 then W2 else W3,
+                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                    extra = if mInQ = 3 and [FWQuarterNumber] = 4 and is53Week then 1 else 0
+                in
+                    ( baseWeeks + extra ) * 7,
+            Int32.Type
+        ),
+
+        AddFWQuarterDays = Table.AddColumn (
+            AddFWMonthDays,
+            "FWQuarterDays",
+            each
+                let
+                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                    extra = if [FWQuarterNumber] = 4 and is53Week then 1 else 0
+                in
+                    ( 13 + extra ) * 7,
+            Int32.Type
+        ),
+
+        AddFWYearDays = Table.AddColumn (
+            AddFWQuarterDays,
+            "FWYearDays",
+            each Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) + 1,
+            Int32.Type
+        ),
+
+        // --- FW DatePrevious columns ---
+        // Use BoundsTable to check 53-week years for previous periods
+        AddFWDatePreviousMonth = Table.AddColumn (
+            AddFWYearDays,
+            "FWDatePreviousMonth",
+            each
+                let
+                    mInQ = if [FWWeekInQuarterNumber] <= W1 then 1
+                           else if [FWWeekInQuarterNumber] <= ( W1 + W2 ) then 2
+                           else 3,
+                    // Previous month's position in its quarter
+                    prevMInQ = if mInQ = 1 then 3 else mInQ - 1,
+                    prevBaseWeeks = if prevMInQ = 1 then W1 else if prevMInQ = 2 then W2 else W3,
+                    // Check if prev month is Q4 of a 53-week year
+                    prevIsQ4 = ( mInQ = 1 and [FWQuarterNumber] = 1 ),
+                    prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
+                    prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
+                    prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                    prevExtra = if prevMInQ = 3 and ( if prevIsQ4 then true else [FWQuarterNumber] = 1 ) and prevIs53 then 1 else 0,
+                    prevMonthLen = ( prevBaseWeeks + prevExtra ) * 7,
+                    // Clamp: last day of month or day exceeds previous month
+                    isLastDay = [FWDayOfMonth] = [FWMonthDays],
+                    clamp = isLastDay or [FWDayOfMonth] > prevMonthLen
+                in
+                    if clamp then
+                        Date.AddDays ( [Date], - [FWDayOfMonth] )
+                    else
+                        Date.AddDays ( [Date], - prevMonthLen ),
+            type date
+        ),
+
+        AddFWDatePreviousQuarter = Table.AddColumn (
+            AddFWDatePreviousMonth,
+            "FWDatePreviousQuarter",
+            each
+                let
+                    // Check if previous quarter is Q4 of a 53-week year
+                    prevIsQ4 = [FWQuarterNumber] = 1,
+                    prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
+                    prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
+                    prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                    prevQtrLen = if prevIsQ4 and prevIs53 then 98 else 91,
+                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                    currentQtrDays = if [FWQuarterNumber] = 4 and is53Week then 98 else 91,
+                    isLastDay = [FWDayOfQuarter] = currentQtrDays,
+                    clamp = isLastDay or [FWDayOfQuarter] > prevQtrLen
+                in
+                    if clamp then
+                        Date.AddDays ( [Date], - [FWDayOfQuarter] )
+                    else
+                        Date.AddDays ( [Date], - prevQtrLen ),
+            type date
         )
     in
-        AddFWQuarterOffset
+        AddFWDatePreviousQuarter

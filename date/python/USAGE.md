@@ -63,7 +63,7 @@ python generate_date_table.py
 
 ## Column Reference
 
-### Base Columns (34 columns, always present)
+### Base Columns (44 columns, always present)
 
 | Column | Type | Description |
 |---|---|---|
@@ -96,11 +96,21 @@ python generate_date_table.py
 | DayName | str | "Monday" |
 | DayShort | str | "Mon" |
 | DayOfYear | int32 | 1-366 |
+| DayOfQuarter | int32 | Day within calendar quarter |
 | DayOfWeek | int32 | 0=Sunday ... 6=Saturday |
 | IsWeekend | bool | Saturday or Sunday |
 | IsBusinessDay | bool | Monday-Friday |
 | NextBusinessDay | datetime | Next Mon-Fri |
 | PreviousBusinessDay | datetime | Previous Mon-Fri |
+| YearStartDate | datetime | January 1 of the year |
+| YearEndDate | datetime | December 31 of the year |
+| MonthDays | int32 | Number of days in the month |
+| QuarterDays | int32 | Number of days in the quarter |
+| YearDays | int32 | Number of days in the year |
+| DatePreviousWeek | datetime | Same weekday, 7 days ago |
+| DatePreviousMonth | datetime | Same day in previous month (clamped) |
+| DatePreviousQuarter | datetime | Same day in previous quarter (clamped) |
+| DatePreviousYear | datetime | Same day in previous year (clamped) |
 
 ### Calendar Columns (14 columns, when INCLUDE_CALENDAR = True)
 
@@ -133,7 +143,7 @@ python generate_date_table.py
 | ISOWeekEndDate | datetime | Sunday of ISO week |
 | ISOWeekDateRange | str | "Jan 06 - Jan 12, 2025" |
 
-### Fiscal Columns (21 columns, when INCLUDE_FISCAL = True)
+### Fiscal Columns (26 columns, when INCLUDE_FISCAL = True)
 
 | Column | Type | Description |
 |---|---|---|
@@ -158,8 +168,13 @@ python generate_date_table.py
 | IsFiscalQuarterEnd | bool | Last day of fiscal quarter |
 | FiscalYear | int32 | Fiscal year label |
 | FiscalYearLabel | str | "FY 2025" |
+| FiscalQuarterDays | int32 | Days in the fiscal quarter |
+| FiscalYearDays | int32 | Days in the fiscal year |
+| FiscalDayOfQuarter | int32 | Day within fiscal quarter |
+| FiscalDayOfYear | int32 | Day within fiscal year |
+| FiscalYearOffset | int32 | Fiscal years from as_of |
 
-### Weekly Fiscal Columns (35 columns, when enabled)
+### Weekly Fiscal Columns (40 columns, when enabled)
 
 | Column | Type | Description |
 |---|---|---|
@@ -193,6 +208,11 @@ python generate_date_table.py
 | FWDayOfYear | int | Day within WF year |
 | FWDayOfQuarter | int | Day within WF quarter |
 | FWDayOfMonth | int | Day within WF month |
+| FWMonthDays | int | Days in the WF month (28 or 35) |
+| FWQuarterDays | int | Days in the WF quarter (91 or 98) |
+| FWYearDays | int | Days in the WF year (364 or 371) |
+| FWDatePreviousMonth | datetime | Same day in previous WF month (clamped) |
+| FWDatePreviousQuarter | datetime | Same day in previous WF quarter (clamped) |
 | FWIsWorkingDay | bool | Monday-Friday |
 | FWDayType | str | "Working Day" / "Non-Working Day" |
 | FWWeekInQuarterNumber | int | Week within quarter (1-14) |
@@ -203,8 +223,8 @@ python generate_date_table.py
 
 | Configuration | Columns |
 |---|---|
-| Base only | 34 |
-| Base + Calendar | 48 |
-| Base + Calendar + ISO | 55 |
-| Base + Calendar + ISO + Fiscal (typical) | 76 |
-| All (with weekly fiscal) | 111 |
+| Base only | 44 |
+| Base + Calendar | 58 |
+| Base + Calendar + ISO | 65 |
+| Base + Calendar + ISO + Fiscal (typical) | 91 |
+| All (with weekly fiscal) | 131 |

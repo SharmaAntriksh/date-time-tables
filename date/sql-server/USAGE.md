@@ -43,13 +43,13 @@ EXEC dbo.usp_DateTable @Help = 1;
 ### Phase Selection
 
 ```sql
--- All defaults: Calendar + ISO + Fiscal (75 columns)
+-- All defaults: Calendar + ISO + Fiscal (90 columns)
 EXEC dbo.usp_DateTable
     @StartDate = '2021-01-01',
     @EndDate   = '2026-12-31',
     @AsOfDate  = '2025-04-05';
 
--- Calendar only (48 columns)
+-- Calendar only (58 columns)
 EXEC dbo.usp_DateTable
     @StartDate     = '2021-01-01',
     @EndDate       = '2026-12-31',
@@ -57,21 +57,21 @@ EXEC dbo.usp_DateTable
     @IncludeISO    = 0,
     @IncludeFiscal = 0;
 
--- Calendar + ISO only (55 columns)
+-- Calendar + ISO only (65 columns)
 EXEC dbo.usp_DateTable
     @StartDate     = '2021-01-01',
     @EndDate       = '2026-12-31',
     @AsOfDate      = '2025-04-05',
     @IncludeFiscal = 0;
 
--- Calendar + Fiscal only, no ISO (68 columns)
+-- Calendar + Fiscal only, no ISO (83 columns)
 EXEC dbo.usp_DateTable
     @StartDate     = '2021-01-01',
     @EndDate       = '2026-12-31',
     @AsOfDate      = '2025-04-05',
     @IncludeISO    = 0;
 
--- Everything: Calendar + ISO + Fiscal + Weekly Fiscal (111 columns)
+-- Everything: Calendar + ISO + Fiscal + Weekly Fiscal (131 columns)
 EXEC dbo.usp_DateTable
     @StartDate           = '2021-01-01',
     @EndDate             = '2026-12-31',
@@ -261,7 +261,7 @@ EXEC dbo.usp_DateTable
 
 ## Column Reference
 
-### Phase 1: Base Calendar (48 columns)
+### Phase 1: Base Calendar (58 columns)
 
 Always included.
 
@@ -279,6 +279,7 @@ Always included.
 | Day Name | DayName | nvarchar | "Monday" |
 | Day Short | DayShort | nvarchar | "Mon" |
 | Day of Year | DayOfYear | int | 1-366 |
+| Day of Quarter | DayOfQuarter | int | Day within calendar quarter |
 | Month Year | MonthYear | nvarchar | "Jan 2025" |
 | Month Year Key | MonthYearKey | int | YYYYMM |
 | Year Quarter Key | YearQuarterKey | int | YYYYQ |
@@ -292,6 +293,11 @@ Always included.
 | Month End Date | MonthEndDate | date | Last day of month |
 | Quarter Start Date | QuarterStartDate | date | First day of quarter |
 | Quarter End Date | QuarterEndDate | date | Last day of quarter |
+| Year Start Date | YearStartDate | date | January 1 of the year |
+| Year End Date | YearEndDate | date | December 31 of the year |
+| Month Days | MonthDays | int | Number of days in the month |
+| Quarter Days | QuarterDays | int | Number of days in the quarter |
+| Year Days | YearDays | int | Number of days in the year |
 | Is Month Start | IsMonthStart | bit | First day of month |
 | Is Month End | IsMonthEnd | bit | Last day of month |
 | Is Quarter Start | IsQuarterStart | bit | First day of quarter |
@@ -315,6 +321,10 @@ Always included.
 | Year Offset | YearOffset | int | Years from @AsOfDate |
 | Calendar Month Offset | CalendarMonthOffset | int | Months from @AsOfDate |
 | Calendar Quarter Offset | CalendarQuarterOffset | int | Quarters from @AsOfDate |
+| Date Previous Week | DatePreviousWeek | date | Same weekday, 7 days ago |
+| Date Previous Month | DatePreviousMonth | date | Same day in previous month (clamped) |
+| Date Previous Quarter | DatePreviousQuarter | date | Same day in previous quarter (clamped) |
+| Date Previous Year | DatePreviousYear | date | Same day in previous year (clamped) |
 
 ### Phase 2: ISO Weeks (7 columns, when @IncludeISO = 1)
 
@@ -328,7 +338,7 @@ Always included.
 | ISO Week Offset | ISOWeekOffset | int | ISO weeks from @AsOfDate |
 | ISO Week Date Range | ISOWeekDateRange | nvarchar | "Jan 06 - Jan 12, 2025" |
 
-### Phase 3: Monthly Fiscal (20 columns, when @IncludeFiscal = 1)
+### Phase 3: Monthly Fiscal (25 columns, when @IncludeFiscal = 1)
 
 | Column (Spaced) | Column (PascalCase) | Type | Description |
 |---|---|---|---|
@@ -353,8 +363,13 @@ Always included.
 | Is Fiscal Quarter End | IsFiscalQuarterEnd | bit | Last day of fiscal quarter |
 | Fiscal Month Offset | FiscalMonthOffset | int | Fiscal months from @AsOfDate |
 | Fiscal Quarter Offset | FiscalQuarterOffset | int | Fiscal quarters from @AsOfDate |
+| Fiscal Quarter Days | FiscalQuarterDays | int | Days in the fiscal quarter |
+| Fiscal Year Days | FiscalYearDays | int | Days in the fiscal year |
+| Fiscal Day of Quarter | FiscalDayOfQuarter | int | Day within fiscal quarter |
+| Fiscal Day of Year | FiscalDayOfYear | int | Day within fiscal year |
+| Fiscal Year Offset | FiscalYearOffset | int | Fiscal years from @AsOfDate |
 
-### Phase 4: Weekly Fiscal (35 + 1 columns, when @IncludeWeeklyFiscal = 1)
+### Phase 4: Weekly Fiscal (40 + 1 columns, when @IncludeWeeklyFiscal = 1)
 
 NULL when disabled.
 
@@ -394,13 +409,18 @@ NULL when disabled.
 | FW Week Offset | FWWeekOffset | int | WF weeks from @AsOfDate |
 | FW Month Offset | FWMonthOffset | int | WF months from @AsOfDate |
 | FW Quarter Offset | FWQuarterOffset | int | WF quarters from @AsOfDate |
+| FW Month Days | FWMonthDays | int | Days in the WF month (28 or 35) |
+| FW Quarter Days | FWQuarterDays | int | Days in the WF quarter (91 or 98) |
+| FW Year Days | FWYearDays | int | Days in the WF year (364 or 371) |
+| FW Date Previous Month | FWDatePreviousMonth | date | Same day in previous WF month (clamped) |
+| FW Date Previous Quarter | FWDatePreviousQuarter | date | Same day in previous WF quarter (clamped) |
 | Weekly Fiscal System | WeeklyFiscalSystem | nvarchar | "Weekly (445 Last)" |
 
 ## Column Counts
 
 | Configuration | Columns |
 |---|---|
-| Calendar only | 48 |
-| Calendar + ISO | 55 |
-| Calendar + ISO + Fiscal (default) | 75 |
-| All phases | 111 |
+| Calendar only | 58 |
+| Calendar + ISO | 65 |
+| Calendar + ISO + Fiscal (default) | 90 |
+| All phases | 131 |

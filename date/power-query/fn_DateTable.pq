@@ -385,7 +385,59 @@
             each [CalendarQuarterIndex] - AsOfCalQuarterIndex,
             Int32.Type
         ),
-        T_Calendar = AddCalQuarterOffset,
+        // --- Year boundary dates ---
+        AddYearStartDate = Table.AddColumn (
+            AddCalQuarterOffset, "YearStartDate",
+            each #date ( [Year], 1, 1 ), type date
+        ),
+        AddYearEndDate = Table.AddColumn (
+            AddYearStartDate, "YearEndDate",
+            each #date ( [Year], 12, 31 ), type date
+        ),
+        // --- Period duration ---
+        AddMonthDays = Table.AddColumn (
+            AddYearEndDate, "MonthDays",
+            each Duration.Days ( [MonthEndDate] - [MonthStartDate] ) + 1, Int32.Type
+        ),
+        AddQuarterDays = Table.AddColumn (
+            AddMonthDays, "QuarterDays",
+            each Duration.Days ( [QuarterEndDate] - [QuarterStartDate] ) + 1, Int32.Type
+        ),
+        AddYearDays = Table.AddColumn (
+            AddQuarterDays, "YearDays",
+            each Duration.Days ( [YearEndDate] - [YearStartDate] ) + 1, Int32.Type
+        ),
+        AddDayOfQuarter = Table.AddColumn (
+            AddYearDays, "DayOfQuarter",
+            each Duration.Days ( [Date] - [QuarterStartDate] ) + 1, Int32.Type
+        ),
+        // --- DatePrevious ---
+        AddDatePreviousWeek = Table.AddColumn (
+            AddDayOfQuarter, "DatePreviousWeek",
+            each Date.AddDays ( [Date], -7 ), type date
+        ),
+        AddDatePreviousMonth = Table.AddColumn (
+            AddDatePreviousWeek, "DatePreviousMonth",
+            each if [Date] = [MonthEndDate] then Date.EndOfMonth ( Date.AddMonths ( [Date], -1 ) )
+                 else let p = Date.AddMonths ( [Date], -1 ), pe = Date.EndOfMonth ( p )
+                      in if [Day] > Date.Day ( pe ) then pe else p,
+            type date
+        ),
+        AddDatePreviousQuarter = Table.AddColumn (
+            AddDatePreviousMonth, "DatePreviousQuarter",
+            each if [Date] = [MonthEndDate] then Date.EndOfMonth ( Date.AddMonths ( [Date], -3 ) )
+                 else let p = Date.AddMonths ( [Date], -3 ), pe = Date.EndOfMonth ( p )
+                      in if [Day] > Date.Day ( pe ) then pe else p,
+            type date
+        ),
+        AddDatePreviousYear = Table.AddColumn (
+            AddDatePreviousQuarter, "DatePreviousYear",
+            each if [Date] = [MonthEndDate] then Date.EndOfMonth ( Date.AddMonths ( [Date], -12 ) )
+                 else let p = Date.AddMonths ( [Date], -12 ), pe = Date.EndOfMonth ( p )
+                      in if [Day] > Date.Day ( pe ) then pe else p,
+            type date
+        ),
+        T_Calendar = AddDatePreviousYear,
         // ═══════════════════════════════════════════════════════════════
         // PHASE 2 — ISO WEEKS
         // ═══════════════════════════════════════════════════════════════
@@ -603,6 +655,27 @@
             each [FiscalQuarterIndex] - AsOfFiscalQuarterIndex,
             Int32.Type
         ),
+        AddFiscalQuarterDays = Table.AddColumn (
+            AddFiscalQuarterOffset, "FiscalQuarterDays",
+            each Duration.Days ( [FiscalQuarterEndDate] - [FiscalQuarterStartDate] ) + 1, Int32.Type
+        ),
+        AddFiscalYearDays = Table.AddColumn (
+            AddFiscalQuarterDays, "FiscalYearDays",
+            each Duration.Days ( [FiscalYearEndDate] - [FiscalYearStartDate] ) + 1, Int32.Type
+        ),
+        AddFiscalDayOfQuarter = Table.AddColumn (
+            AddFiscalYearDays, "FiscalDayOfQuarter",
+            each Duration.Days ( [Date] - [FiscalQuarterStartDate] ) + 1, Int32.Type
+        ),
+        AddFiscalDayOfYear = Table.AddColumn (
+            AddFiscalDayOfQuarter, "FiscalDayOfYear",
+            each Duration.Days ( [Date] - [FiscalYearStartDate] ) + 1, Int32.Type
+        ),
+        AsOfFiscalYear = AsOfFiscalYearStartYear + FYEndAdd,
+        AddFiscalYearOffset = Table.AddColumn (
+            AddFiscalDayOfYear, "FiscalYearOffset",
+            each [FiscalYear] - AsOfFiscalYear, Int32.Type
+        ),
         // ═══════════════════════════════════════════════════════════════
         // PHASE 4 — WEEKLY FISCAL (conditional)
         // ═══════════════════════════════════════════════════════════════
@@ -639,8 +712,8 @@
                         in
                             Date.AddDays ( firstDayOfMonth, offset ),
                     // Build bounds table: FW year -> (start, end)
-                    FWStartYear = List.Min ( Table.Column ( AddFiscalQuarterOffset, "Year" ) ) - 1,
-                    FWEndYear = List.Max ( Table.Column ( AddFiscalQuarterOffset, "Year" ) ) + 2,
+                    FWStartYear = List.Min ( Table.Column ( AddFiscalYearOffset, "Year" ) ) - 1,
+                    FWEndYear = List.Max ( Table.Column ( AddFiscalYearOffset, "Year" ) ) + 2,
                     YearList = { FWStartYear .. FWEndYear },
                     BoundsTable = List.Transform (
                         YearList,
@@ -691,7 +764,7 @@
                             )
                     ),
                     JoinFWYear = Table.NestedJoin (
-                        AddFiscalQuarterOffset,
+                        AddFiscalYearOffset,
                         { "Date" },
                         DateToFWYear,
                         { "Date" },
@@ -1032,11 +1105,92 @@
                         "FWQuarterOffset",
                         each [FWQuarterIndex] - AsOfFWYearQuarterIndex,
                         Int32.Type
+                    ),
+                    // --- FW period duration columns (derived from week pattern) ---
+                    W3 = 13 - W1 - W2,
+                    AddFWMonthDays = Table.AddColumn (
+                        AddFWQuarterOffset,
+                        "FWMonthDays",
+                        each
+                            let
+                                mInQ = if [FWWeekInQuarterNumber] <= W1 then 1
+                                       else if [FWWeekInQuarterNumber] <= ( W1 + W2 ) then 2
+                                       else 3,
+                                baseWeeks = if mInQ = 1 then W1 else if mInQ = 2 then W2 else W3,
+                                is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                                extra = if mInQ = 3 and [FWQuarterNumber] = 4 and is53Week then 1 else 0
+                            in
+                                ( baseWeeks + extra ) * 7,
+                        Int32.Type
+                    ),
+                    AddFWQuarterDays = Table.AddColumn (
+                        AddFWMonthDays,
+                        "FWQuarterDays",
+                        each
+                            let
+                                is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                                extra = if [FWQuarterNumber] = 4 and is53Week then 1 else 0
+                            in
+                                ( 13 + extra ) * 7,
+                        Int32.Type
+                    ),
+                    AddFWYearDays = Table.AddColumn (
+                        AddFWQuarterDays,
+                        "FWYearDays",
+                        each Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) + 1,
+                        Int32.Type
+                    ),
+                    // --- FW DatePrevious columns ---
+                    AddFWDatePreviousMonth = Table.AddColumn (
+                        AddFWYearDays,
+                        "FWDatePreviousMonth",
+                        each
+                            let
+                                mInQ = if [FWWeekInQuarterNumber] <= W1 then 1
+                                       else if [FWWeekInQuarterNumber] <= ( W1 + W2 ) then 2
+                                       else 3,
+                                prevMInQ = if mInQ = 1 then 3 else mInQ - 1,
+                                prevBaseWeeks = if prevMInQ = 1 then W1 else if prevMInQ = 2 then W2 else W3,
+                                prevIsQ4 = ( mInQ = 1 and [FWQuarterNumber] = 1 ),
+                                prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
+                                prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
+                                prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                                prevExtra = if prevMInQ = 3 and ( if prevIsQ4 then true else [FWQuarterNumber] = 1 ) and prevIs53 then 1 else 0,
+                                prevMonthLen = ( prevBaseWeeks + prevExtra ) * 7,
+                                isLastDay = [FWDayOfMonth] = [FWMonthDays],
+                                clamp = isLastDay or [FWDayOfMonth] > prevMonthLen
+                            in
+                                if clamp then
+                                    Date.AddDays ( [Date], - [FWDayOfMonth] )
+                                else
+                                    Date.AddDays ( [Date], - prevMonthLen ),
+                        type date
+                    ),
+                    AddFWDatePreviousQuarter = Table.AddColumn (
+                        AddFWDatePreviousMonth,
+                        "FWDatePreviousQuarter",
+                        each
+                            let
+                                prevIsQ4 = [FWQuarterNumber] = 1,
+                                prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
+                                prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
+                                prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                                prevQtrLen = if prevIsQ4 and prevIs53 then 98 else 91,
+                                is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                                currentQtrDays = if [FWQuarterNumber] = 4 and is53Week then 98 else 91,
+                                isLastDay = [FWDayOfQuarter] = currentQtrDays,
+                                clamp = isLastDay or [FWDayOfQuarter] > prevQtrLen
+                            in
+                                if clamp then
+                                    Date.AddDays ( [Date], - [FWDayOfQuarter] )
+                                else
+                                    Date.AddDays ( [Date], - prevQtrLen ),
+                        type date
                     )
                 in
-                    AddFWQuarterOffset
+                    AddFWDatePreviousQuarter
             else
-                AddFiscalQuarterOffset,
+                AddFiscalYearOffset,
         // ═══════════════════════════════════════════════════════════════
         // PHASE 5 — SYSTEM LABELS & COLUMN RENAME
         // ═══════════════════════════════════════════════════════════════
@@ -1097,6 +1251,16 @@
             { "CalendarWeekOffset", "Calendar Week Offset" },
             { "CalendarMonthOffset", "Calendar Month Offset" },
             { "CalendarQuarterOffset", "Calendar Quarter Offset" },
+            { "YearStartDate", "Year Start Date" },
+            { "YearEndDate", "Year End Date" },
+            { "MonthDays", "Month Days" },
+            { "QuarterDays", "Quarter Days" },
+            { "YearDays", "Year Days" },
+            { "DayOfQuarter", "Day of Quarter" },
+            { "DatePreviousWeek", "Date Previous Week" },
+            { "DatePreviousMonth", "Date Previous Month" },
+            { "DatePreviousQuarter", "Date Previous Quarter" },
+            { "DatePreviousYear", "Date Previous Year" },
             // ISO weeks
             { "ISOWeekNumber", "ISO Week Number" },
             { "ISOYear", "ISO Year" },
@@ -1127,6 +1291,11 @@
             { "IsFiscalQuarterEnd", "Is Fiscal Quarter End" },
             { "FiscalMonthOffset", "Fiscal Month Offset" },
             { "FiscalQuarterOffset", "Fiscal Quarter Offset" },
+            { "FiscalQuarterDays", "Fiscal Quarter Days" },
+            { "FiscalYearDays", "Fiscal Year Days" },
+            { "FiscalDayOfQuarter", "Fiscal Day of Quarter" },
+            { "FiscalDayOfYear", "Fiscal Day of Year" },
+            { "FiscalYearOffset", "Fiscal Year Offset" },
             // Weekly fiscal
             { "FWYearNumber", "FW Year Number" },
             { "FWStartOfYear", "FW Start of Year" },
@@ -1162,6 +1331,11 @@
             { "FWWeekOffset", "FW Week Offset" },
             { "FWMonthOffset", "FW Month Offset" },
             { "FWQuarterOffset", "FW Quarter Offset" },
+            { "FWMonthDays", "FW Month Days" },
+            { "FWQuarterDays", "FW Quarter Days" },
+            { "FWYearDays", "FW Year Days" },
+            { "FWDatePreviousMonth", "FW Date Previous Month" },
+            { "FWDatePreviousQuarter", "FW Date Previous Quarter" },
             // Weekly fiscal system label
             { "WeeklyFiscalSystem", "Weekly Fiscal System" }
         },

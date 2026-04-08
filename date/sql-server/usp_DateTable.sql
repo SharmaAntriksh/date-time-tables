@@ -182,6 +182,7 @@ PARAMETERS:
     DECLARE @AsOfFiscalQtr     int = (@AsOfFiscalMonth - 1) / 3 + 1;
     DECLARE @AsOfFiscalMoIdx   int = @AsOfFYStartYear * 12 + @AsOfFiscalMonth;
     DECLARE @AsOfFiscalQtrIdx  int = @AsOfFYStartYear * 4  + @AsOfFiscalQtr;
+    DECLARE @AsOfFiscalYear    int = @AsOfFYStartYear + @FYEndAdd;
 
     ---------------------------------------------------------------------------
     -- Create result table
@@ -236,6 +237,16 @@ PARAMETERS:
         [YearOffset]            int         NOT NULL,
         [CalendarMonthOffset]   int         NOT NULL,
         [CalendarQuarterOffset] int         NOT NULL,
+        [YearStartDate]         date        NOT NULL,
+        [YearEndDate]           date        NOT NULL,
+        [MonthDays]             int         NOT NULL,
+        [QuarterDays]           int         NOT NULL,
+        [YearDays]              int         NOT NULL,
+        [DayOfQuarter]          int         NOT NULL,
+        [DatePreviousWeek]      date        NOT NULL,
+        [DatePreviousMonth]     date        NOT NULL,
+        [DatePreviousQuarter]   date        NOT NULL,
+        [DatePreviousYear]      date        NOT NULL,
         -- Phase 2: ISO Weeks
         [ISOWeekNumber]         int         NOT NULL,
         [ISOYear]               int         NOT NULL,
@@ -266,6 +277,11 @@ PARAMETERS:
         [IsFiscalQuarterEnd]    bit         NOT NULL,
         [FiscalMonthOffset]     int         NOT NULL,
         [FiscalQuarterOffset]   int         NOT NULL,
+        [FiscalQuarterDays]     int         NOT NULL,
+        [FiscalYearDays]        int         NOT NULL,
+        [FiscalDayOfQuarter]    int         NOT NULL,
+        [FiscalDayOfYear]       int         NOT NULL,
+        [FiscalYearOffset]      int         NOT NULL,
         -- Phase 4: Weekly Fiscal (NULL when not enabled)
         [FWYearNumber]          int         NULL,
         [FWStartOfYear]         date        NULL,
@@ -301,6 +317,11 @@ PARAMETERS:
         [FWWeekOffset]          int         NULL,
         [FWMonthOffset]         int         NULL,
         [FWQuarterOffset]       int         NULL,
+        [FWMonthDays]           int         NULL,
+        [FWQuarterDays]         int         NULL,
+        [FWYearDays]            int         NULL,
+        [FWDatePreviousMonth]   date        NULL,
+        [FWDatePreviousQuarter] date        NULL,
         -- Weekly fiscal system label
         [WeeklyFiscalSystem]    nvarchar(30) NULL
     );
@@ -356,6 +377,9 @@ PARAMETERS:
         [NextBusinessDay],[PreviousBusinessDay],
         [IsToday],[IsCurrentYear],[IsCurrentMonth],[IsCurrentQuarter],
         [CurrentDayOffset],[YearOffset],[CalendarMonthOffset],[CalendarQuarterOffset],
+        [YearStartDate],[YearEndDate],
+        [MonthDays],[QuarterDays],[YearDays],[DayOfQuarter],
+        [DatePreviousWeek],[DatePreviousMonth],[DatePreviousQuarter],[DatePreviousYear],
         [ISOWeekNumber],[ISOYear],
         [ISOWeekStartDate],[ISOWeekEndDate],
         [ISOYearWeekIndex],[ISOWeekOffset],
@@ -368,6 +392,8 @@ PARAMETERS:
         [FiscalQuarterStartDate],[FiscalQuarterEndDate],
         [IsFiscalYearStart],[IsFiscalYearEnd],[IsFiscalQuarterStart],[IsFiscalQuarterEnd],
         [FiscalMonthOffset],[FiscalQuarterOffset],
+        [FiscalQuarterDays],[FiscalYearDays],
+        [FiscalDayOfQuarter],[FiscalDayOfYear],[FiscalYearOffset],
         [WeeklyFiscalSystem]
     )
     SELECT
@@ -437,6 +463,44 @@ PARAMETERS:
         (p.yr * 12 + p.mo) - @AsOfCalMonthIndex,
         (p.yr * 4 + p.qtr) - @AsOfCalQuarterIndex,
 
+        -- Year boundaries
+        DATEFROMPARTS(p.yr, 1, 1),
+        DATEFROMPARTS(p.yr, 12, 31),
+
+        -- Period duration
+        DATEDIFF(DAY, DATEADD(MONTH, DATEDIFF(MONTH, 0, p.d), 0), EOMONTH(p.d)) + 1,
+        DATEDIFF(DAY,
+            DATEADD(QUARTER, DATEDIFF(QUARTER, 0, p.d), 0),
+            DATEADD(DAY, -1, DATEADD(QUARTER, DATEDIFF(QUARTER, 0, p.d) + 1, 0))) + 1,
+        DATEDIFF(DAY, DATEFROMPARTS(p.yr, 1, 1), DATEFROMPARTS(p.yr, 12, 31)) + 1,
+
+        -- Day of quarter
+        DATEDIFF(DAY, DATEADD(QUARTER, DATEDIFF(QUARTER, 0, p.d), 0), p.d) + 1,
+
+        -- DatePrevious columns
+        DATEADD(DAY, -7, p.d),
+        -- DatePreviousMonth: same day N-1 months, clamped to end-of-month
+        CASE WHEN p.d = EOMONTH(p.d)
+            THEN EOMONTH(p.d, -1)
+            ELSE CASE WHEN p.dy > DAY(EOMONTH(DATEADD(MONTH, -1, p.d)))
+                THEN EOMONTH(DATEADD(MONTH, -1, p.d))
+                ELSE DATEADD(MONTH, -1, p.d) END
+        END,
+        -- DatePreviousQuarter: same day N-3 months, clamped
+        CASE WHEN p.d = EOMONTH(p.d)
+            THEN EOMONTH(p.d, -3)
+            ELSE CASE WHEN p.dy > DAY(EOMONTH(DATEADD(MONTH, -3, p.d)))
+                THEN EOMONTH(DATEADD(MONTH, -3, p.d))
+                ELSE DATEADD(MONTH, -3, p.d) END
+        END,
+        -- DatePreviousYear: same day N-12 months, clamped
+        CASE WHEN p.d = EOMONTH(p.d)
+            THEN EOMONTH(p.d, -12)
+            ELSE CASE WHEN p.dy > DAY(EOMONTH(DATEADD(MONTH, -12, p.d)))
+                THEN EOMONTH(DATEADD(MONTH, -12, p.d))
+                ELSE DATEADD(MONTH, -12, p.d) END
+        END,
+
         -- ISO Weeks
         DATEPART(ISO_WEEK, p.d),
         iso.ISOYear,
@@ -476,6 +540,13 @@ PARAMETERS:
         CASE WHEN p.d = fd.FQEndDate    THEN 1 ELSE 0 END,
         f.FMoIdx  - @AsOfFiscalMoIdx,
         f.FQtrIdx - @AsOfFiscalQtrIdx,
+
+        -- Fiscal period duration / day-of-period
+        DATEDIFF(DAY, fd.FQStartDate, fd.FQEndDate) + 1,
+        DATEDIFF(DAY, fd.FYStartDate, fd.FYEndDate) + 1,
+        DATEDIFF(DAY, fd.FQStartDate, p.d) + 1,
+        DATEDIFF(DAY, fd.FYStartDate, p.d) + 1,
+        f.FY - @AsOfFiscalYear,
 
         -- Weekly fiscal system label
         @WFLabel
@@ -698,6 +769,90 @@ PARAMETERS:
             FWQuarterOffset = FWQuarterIndex - @AsOfFWQtrIdx
         WHERE FWYearNumber IS NOT NULL;
 
+        -----------------------------------------------------------------------
+        -- Pass 6: Period duration + DatePrevious
+        -----------------------------------------------------------------------
+        DECLARE @W3 int = 13 - @W1 - @W2;
+
+        UPDATE #DateTable
+        SET
+            -- FWMonthDays: from 4-4-5 pattern + extra week for Q4 of 53-week year
+            FWMonthDays = (
+                CASE
+                    WHEN FWMonthNumber % 3 = 1 THEN @W1
+                    WHEN FWMonthNumber % 3 = 2 THEN @W2
+                    ELSE @W3
+                        + CASE WHEN FWQuarterNumber = 4
+                            AND DATEDIFF(DAY, FWStartOfYear, FWEndOfYear) >= 370
+                            THEN 1 ELSE 0 END
+                END
+            ) * 7,
+            -- FWQuarterDays: 13 weeks + extra for Q4 of 53-week year
+            FWQuarterDays = (13
+                + CASE WHEN FWQuarterNumber = 4
+                    AND DATEDIFF(DAY, FWStartOfYear, FWEndOfYear) >= 370
+                    THEN 1 ELSE 0 END
+            ) * 7,
+            FWYearDays = DATEDIFF(DAY, FWStartOfYear, FWEndOfYear) + 1,
+            -- FWDatePreviousMonth: same day-of-month in previous FW month
+            FWDatePreviousMonth = CASE
+                -- Clamp: last day of current month -> last day of previous month
+                WHEN FWDayOfMonth = (
+                    CASE
+                        WHEN FWMonthNumber % 3 = 1 THEN @W1
+                        WHEN FWMonthNumber % 3 = 2 THEN @W2
+                        ELSE @W3
+                            + CASE WHEN FWQuarterNumber = 4
+                                AND DATEDIFF(DAY, FWStartOfYear, FWEndOfYear) >= 370
+                                THEN 1 ELSE 0 END
+                    END * 7)
+                THEN DATEADD(DAY, -FWDayOfMonth, [Date])
+                -- Clamp: day exceeds previous month length
+                WHEN FWDayOfMonth > (
+                    CASE
+                        WHEN (FWMonthNumber - 1) % 3 = 0 THEN @W3  -- prev is month 3 of prior quarter
+                        WHEN FWMonthNumber % 3 = 0 THEN @W2
+                        ELSE @W1
+                    END
+                    + CASE WHEN FWMonthNumber % 3 = 1 AND FWQuarterNumber = 1
+                        AND (SELECT DATEDIFF(DAY, b2.FWStart, b2.FWEnd) FROM #FWBounds b2 WHERE b2.FWYear = FWYearNumber - 1) >= 370
+                        THEN 1 ELSE 0 END
+                ) * 7
+                THEN DATEADD(DAY, -FWDayOfMonth, [Date])
+                -- Normal: shift back by previous month length
+                ELSE DATEADD(DAY, -(
+                    CASE
+                        WHEN (FWMonthNumber - 1) % 3 = 0 THEN @W3
+                        WHEN FWMonthNumber % 3 = 0 THEN @W2
+                        ELSE @W1
+                    END
+                    + CASE WHEN FWMonthNumber % 3 = 1 AND FWQuarterNumber = 1
+                        AND (SELECT DATEDIFF(DAY, b2.FWStart, b2.FWEnd) FROM #FWBounds b2 WHERE b2.FWYear = FWYearNumber - 1) >= 370
+                        THEN 1 ELSE 0 END
+                ) * 7, [Date])
+            END,
+            -- FWDatePreviousQuarter: same day-of-quarter in previous FW quarter
+            FWDatePreviousQuarter = CASE
+                -- Clamp: last day of quarter -> last day of previous quarter
+                WHEN FWDayOfQuarter = (13
+                    + CASE WHEN FWQuarterNumber = 4
+                        AND DATEDIFF(DAY, FWStartOfYear, FWEndOfYear) >= 370
+                        THEN 1 ELSE 0 END) * 7
+                THEN DATEADD(DAY, -FWDayOfQuarter, [Date])
+                -- Clamp: day exceeds previous quarter length
+                WHEN FWDayOfQuarter > (13
+                    + CASE WHEN FWQuarterNumber = 1
+                        AND (SELECT DATEDIFF(DAY, b2.FWStart, b2.FWEnd) FROM #FWBounds b2 WHERE b2.FWYear = FWYearNumber - 1) >= 370
+                        THEN 1 ELSE 0 END) * 7
+                THEN DATEADD(DAY, -FWDayOfQuarter, [Date])
+                -- Normal: shift back by previous quarter length
+                ELSE DATEADD(DAY, -(13
+                    + CASE WHEN FWQuarterNumber = 1
+                        AND (SELECT DATEDIFF(DAY, b2.FWStart, b2.FWEnd) FROM #FWBounds b2 WHERE b2.FWYear = FWYearNumber - 1) >= 370
+                        THEN 1 ELSE 0 END) * 7, [Date])
+            END
+        WHERE FWYearNumber IS NOT NULL;
+
         DROP TABLE #FWBounds;
     END;
 
@@ -767,6 +922,16 @@ PARAMETERS:
     (N'YearOffset',           N'Year Offset',            1),
     (N'CalendarMonthOffset',  N'Calendar Month Offset',  1),
     (N'CalendarQuarterOffset',N'Calendar Quarter Offset', 1),
+    (N'YearStartDate',        N'Year Start Date',        1),
+    (N'YearEndDate',          N'Year End Date',          1),
+    (N'MonthDays',            N'Month Days',             1),
+    (N'QuarterDays',          N'Quarter Days',           1),
+    (N'YearDays',             N'Year Days',              1),
+    (N'DayOfQuarter',         N'Day of Quarter',         1),
+    (N'DatePreviousWeek',     N'Date Previous Week',     1),
+    (N'DatePreviousMonth',    N'Date Previous Month',    1),
+    (N'DatePreviousQuarter',  N'Date Previous Quarter',  1),
+    (N'DatePreviousYear',     N'Date Previous Year',     1),
     -- Phase 2: ISO Weeks
     (N'ISOWeekNumber',        N'ISO Week Number',        2),
     (N'ISOYear',              N'ISO Year',               2),
@@ -797,6 +962,11 @@ PARAMETERS:
     (N'IsFiscalQuarterEnd',   N'Is Fiscal Quarter End',  3),
     (N'FiscalMonthOffset',    N'Fiscal Month Offset',    3),
     (N'FiscalQuarterOffset',  N'Fiscal Quarter Offset',  3),
+    (N'FiscalQuarterDays',    N'Fiscal Quarter Days',    3),
+    (N'FiscalYearDays',       N'Fiscal Year Days',       3),
+    (N'FiscalDayOfQuarter',   N'Fiscal Day of Quarter',  3),
+    (N'FiscalDayOfYear',      N'Fiscal Day of Year',     3),
+    (N'FiscalYearOffset',     N'Fiscal Year Offset',     3),
     -- Phase 4: Weekly Fiscal
     (N'FWYearNumber',         N'FW Year Number',         4),
     (N'FWStartOfYear',        N'FW Start of Year',       4),
@@ -832,6 +1002,11 @@ PARAMETERS:
     (N'FWWeekOffset',         N'FW Week Offset',         4),
     (N'FWMonthOffset',        N'FW Month Offset',        4),
     (N'FWQuarterOffset',      N'FW Quarter Offset',      4),
+    (N'FWMonthDays',          N'FW Month Days',          4),
+    (N'FWQuarterDays',        N'FW Quarter Days',        4),
+    (N'FWYearDays',           N'FW Year Days',           4),
+    (N'FWDatePreviousMonth',  N'FW Date Previous Month', 4),
+    (N'FWDatePreviousQuarter',N'FW Date Previous Quarter',4),
     -- Weekly fiscal system label
     (N'WeeklyFiscalSystem',   N'Weekly Fiscal System',   4);
 

@@ -91,6 +91,10 @@ Each implementation includes a detailed `USAGE.md` with setup instructions, para
 - [Time - SQL Server](time/sql-server/USAGE.md)
 - [Time - Power Query](time/power-query/USAGE.md)
 
+## Attribution
+
+The weekly fiscal calendar logic is based on [SQLBI's DAX date template](https://github.com/sql-bi/DaxDateTemplate) by Marco Russo and Alberto Ferrari.
+
 ## License
 
 This project is licensed under the [MIT License](LICENSE).

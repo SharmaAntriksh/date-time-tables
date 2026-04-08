@@ -148,6 +148,36 @@ def _add_calendar_columns(df: pd.DataFrame, *, as_of: pd.Timestamp) -> pd.DataFr
         df["CalendarWeekStartDate"], df["CalendarWeekEndDate"],
     )
 
+    # Year boundary dates
+    df["YearStartDate"] = pd.to_datetime(df["Year"].astype(str) + "-01-01").dt.normalize()
+    df["YearEndDate"] = pd.to_datetime(df["Year"].astype(str) + "-12-31").dt.normalize()
+
+    # Period duration columns
+    df["MonthDays"] = (df["MonthEndDate"] - df["MonthStartDate"]).dt.days.add(1).astype(np.int32)
+    df["QuarterDays"] = (df["QuarterEndDate"] - df["QuarterStartDate"]).dt.days.add(1).astype(np.int32)
+    df["YearDays"] = (df["YearEndDate"] - df["YearStartDate"]).dt.days.add(1).astype(np.int32)
+
+    # Day-of-quarter
+    df["DayOfQuarter"] = (df["Date"] - df["QuarterStartDate"]).dt.days.add(1).astype(np.int32)
+
+    # DatePrevious columns (same day in prior period, clamped to end-of-month)
+    df["DatePreviousWeek"] = (df["Date"] - pd.Timedelta(days=7)).dt.normalize()
+    df["DatePreviousMonth"] = (df["Date"] - pd.DateOffset(months=1)).dt.normalize()
+    df["DatePreviousQuarter"] = (df["Date"] - pd.DateOffset(months=3)).dt.normalize()
+    df["DatePreviousYear"] = (df["Date"] - pd.DateOffset(years=1)).dt.normalize()
+
+    # For month-end dates, snap each shifted date to end of its landing month
+    is_month_end = df["Date"] == df["MonthEndDate"]
+    if is_month_end.any():
+        eom_idx = is_month_end[is_month_end].index
+        df.loc[eom_idx, "DatePreviousMonth"] = (
+            df["MonthStartDate"][eom_idx] - pd.Timedelta(days=1)
+        ).dt.normalize()
+        for col in ("DatePreviousQuarter", "DatePreviousYear"):
+            df.loc[eom_idx, col] = df.loc[eom_idx, col].map(
+                lambda d: (d + pd.offsets.MonthEnd(0)).normalize()
+            )
+
     # Next/Previous Business Day (strict: excludes the current date)
     biz_dates = df.loc[df["IsBusinessDay"] == 1, "Date"].to_numpy(dtype="datetime64[D]")
     date_vals = df["Date"].to_numpy(dtype="datetime64[D]")
@@ -287,6 +317,20 @@ def _add_fiscal_columns(
     df["FiscalYear"] = fiscal_year_end.astype(np.int32)
     df["FiscalYearLabel"] = "FY " + df["FiscalYear"].astype(str)
 
+    # Fiscal period duration and day-of-period columns
+    df["FiscalQuarterDays"] = (
+        df["FiscalQuarterEndDate"] - df["FiscalQuarterStartDate"]
+    ).dt.days.add(1).astype(np.int32)
+    df["FiscalYearDays"] = (
+        df["FiscalYearEndDate"] - df["FiscalYearStartDate"]
+    ).dt.days.add(1).astype(np.int32)
+    df["FiscalDayOfQuarter"] = (
+        df["Date"] - df["FiscalQuarterStartDate"]
+    ).dt.days.add(1).astype(np.int32)
+    df["FiscalDayOfYear"] = (
+        df["Date"] - df["FiscalYearStartDate"]
+    ).dt.days.add(1).astype(np.int32)
+
     # Fiscal offsets relative to as_of
     asof_mask = df["Date"] == as_of
     asof_idx = df.index[asof_mask]
@@ -295,15 +339,20 @@ def _add_fiscal_columns(
         _asof = df.loc[asof_idx[0]]
         as_of_fiscal_month_index = int(_asof["FiscalMonthIndex"])
         as_of_fiscal_quarter_index = int(_asof["FiscalQuarterIndex"])
+        as_of_fiscal_year = int(_asof["FiscalYear"])
         df["FiscalMonthOffset"] = (
             df["FiscalMonthIndex"].astype(int) - as_of_fiscal_month_index
         ).astype(np.int32)
         df["FiscalQuarterOffset"] = (
             df["FiscalQuarterIndex"].astype(int) - as_of_fiscal_quarter_index
         ).astype(np.int32)
+        df["FiscalYearOffset"] = (
+            df["FiscalYear"].astype(int) - as_of_fiscal_year
+        ).astype(np.int32)
     else:
         df["FiscalMonthOffset"] = np.int32(0)
         df["FiscalQuarterOffset"] = np.int32(0)
+        df["FiscalYearOffset"] = np.int32(0)
 
     return df
 
@@ -503,6 +552,87 @@ def _add_weekly_fiscal_columns(
     fw_end_quarter = tmp.groupby("FWQuarterIndex")["Date"].transform("max")
     fw_day_of_quarter = (df["Date"] - fw_start_quarter).dt.days.add(1).astype(np.int32)
 
+    # Period duration columns (derived from week pattern, not groupby boundaries)
+    is_53_week_year = ((fw_end_year - fw_start_year).dt.days >= 370)
+    w3 = 13 - w1 - w2
+    base_weeks = np.select(
+        [m_in_q == 1, m_in_q == 2],
+        [w1, w2],
+        default=w3,
+    )
+    extra_month_week = (
+        (m_in_q == 3) & (fw_quarter == 4) & is_53_week_year
+    ).astype(int)
+    fw_month_days = ((base_weeks + extra_month_week) * 7).astype(np.int32)
+
+    base_quarter_weeks = 13
+    extra_quarter_week = ((fw_quarter == 4) & is_53_week_year).astype(int)
+    fw_quarter_days = ((base_quarter_weeks + extra_quarter_week) * 7).astype(np.int32)
+
+    fw_year_days = (fw_end_year - fw_start_year).dt.days.add(1).astype(np.int32)
+
+    # FW DatePrevious (computed from week pattern, not groupby)
+    # Previous FW month length (based on position in quarter pattern)
+    prev_m_in_q = np.where(m_in_q == 1, 3, m_in_q - 1)
+    prev_base_weeks = np.select(
+        [prev_m_in_q == 1, prev_m_in_q == 2],
+        [w1, w2],
+        default=w3,
+    )
+    # Check 53-week year for previous month's Q4
+    prev_m_quarter = np.where(m_in_q == 1, fw_quarter - 1, fw_quarter)
+    prev_m_is_q0 = prev_m_quarter == 0
+    prev_m_quarter = np.where(prev_m_is_q0, 4, prev_m_quarter)
+    prev_m_fw_year = np.where(
+        prev_m_is_q0, fw_year_s.to_numpy() - 1, fw_year_s.to_numpy()
+    )
+    prev_m_year_start = pd.Series(prev_m_fw_year, index=df.index).map(start_map)
+    prev_m_year_end = pd.Series(prev_m_fw_year, index=df.index).map(end_map)
+    prev_m_year_is_53 = (prev_m_year_end - prev_m_year_start).dt.days >= 370
+    prev_m_extra = (
+        (prev_m_in_q == 3) & (prev_m_quarter == 4) & prev_m_year_is_53
+    ).astype(int)
+    prev_month_len = ((prev_base_weeks + prev_m_extra) * 7).astype(np.int32)
+
+    # FWDatePreviousMonth: same day-of-month in previous FW month, clamped
+    dom = fw_day_of_month.to_numpy()
+    dates_np = df["Date"].to_numpy(dtype="datetime64[D]")
+    is_last_dom = dom == fw_month_days
+    clamp_m = is_last_dom | (dom > prev_month_len)
+    fw_date_previous_month = pd.Series(
+        np.where(
+            ~clamp_m,
+            dates_np - prev_month_len.astype("timedelta64[D]"),
+            dates_np - dom.astype("timedelta64[D]"),
+        ),
+        index=df.index,
+        dtype="datetime64[ns]",
+    )
+
+    # Previous FW quarter length (standard 91, or 98 for Q4 of 53-week year)
+    prev_q_is_q4 = fw_quarter == 1  # Q1's previous is Q4
+    prev_q_fw_year = np.where(prev_q_is_q4, fw_year_s.to_numpy() - 1, fw_year_s.to_numpy())
+    prev_q_year_start = pd.Series(prev_q_fw_year, index=df.index).map(start_map)
+    prev_q_year_end = pd.Series(prev_q_fw_year, index=df.index).map(end_map)
+    prev_q_year_is_53 = (prev_q_year_end - prev_q_year_start).dt.days >= 370
+    prev_quarter_len = np.where(
+        prev_q_is_q4 & prev_q_year_is_53, 98, 91
+    ).astype(np.int32)
+
+    # FWDatePreviousQuarter: same day-of-quarter in previous FW quarter, clamped
+    doq = fw_day_of_quarter.to_numpy()
+    is_last_doq = doq == fw_quarter_days
+    clamp_q = is_last_doq | (doq > prev_quarter_len)
+    fw_date_previous_quarter = pd.Series(
+        np.where(
+            ~clamp_q,
+            dates_np - prev_quarter_len.astype("timedelta64[D]"),
+            dates_np - doq.astype("timedelta64[D]"),
+        ),
+        index=df.index,
+        dtype="datetime64[ns]",
+    )
+
     # Global increasing week index
     first_week_reference = pd.Timestamp("1900-12-30") + pd.Timedelta(days=fdow)
     fw_year_week = (
@@ -554,6 +684,11 @@ def _add_weekly_fiscal_columns(
             "FWEndOfQuarter": fw_end_quarter,
             "FWDayOfQuarter": fw_day_of_quarter,
             "FWWeekIndex": fw_year_week,
+            "FWMonthDays": fw_month_days,
+            "FWQuarterDays": fw_quarter_days,
+            "FWYearDays": fw_year_days,
+            "FWDatePreviousMonth": fw_date_previous_month,
+            "FWDatePreviousQuarter": fw_date_previous_quarter,
             "FWQuarterLabel": fw_quarter_label,
             "FWWeekLabel": fw_week_label,
             "FWWeekDateRange": fw_week_date_range,
@@ -613,9 +748,12 @@ _BASE_COLS = [
     "WeekOfMonth",
     "CalendarWeekNumber", "CalendarWeekStartDate", "CalendarWeekEndDate",
     "CalendarWeekDateRange", "CalendarWeekIndex", "CalendarWeekOffset",
-    "Day", "DayName", "DayShort", "DayOfYear", "DayOfWeek",
+    "Day", "DayName", "DayShort", "DayOfYear", "DayOfQuarter", "DayOfWeek",
     "IsWeekend", "IsBusinessDay",
     "NextBusinessDay", "PreviousBusinessDay",
+    "YearStartDate", "YearEndDate",
+    "MonthDays", "QuarterDays", "YearDays",
+    "DatePreviousWeek", "DatePreviousMonth", "DatePreviousQuarter", "DatePreviousYear",
 ]
 
 _CALENDAR_COLS = [
@@ -640,6 +778,9 @@ _FISCAL_COLS = [
     "IsFiscalYearStart", "IsFiscalYearEnd",
     "IsFiscalQuarterStart", "IsFiscalQuarterEnd",
     "FiscalYear", "FiscalYearLabel",
+    "FiscalQuarterDays", "FiscalYearDays",
+    "FiscalDayOfQuarter", "FiscalDayOfYear",
+    "FiscalYearOffset",
 ]
 
 _WEEKLY_FISCAL_COLS = [
@@ -657,6 +798,8 @@ _WEEKLY_FISCAL_COLS = [
     "FWStartOfWeek", "FWEndOfWeek",
     "FWWeekDayNumber", "FWWeekDayNameShort",
     "FWDayOfYear", "FWDayOfQuarter", "FWDayOfMonth",
+    "FWMonthDays", "FWQuarterDays", "FWYearDays",
+    "FWDatePreviousMonth", "FWDatePreviousQuarter",
     "FWIsWorkingDay", "FWDayType",
     "FWWeekInQuarterNumber", "FWYearMonthLabel",
     "WeeklyFiscalSystem",

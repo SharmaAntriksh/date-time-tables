@@ -195,6 +195,45 @@
             "FiscalQuarterOffset",
             each [FiscalQuarterIndex] - AsOfFiscalQuarterIndex,
             Int32.Type
+        ),
+
+        // --- Fiscal period duration and day-of-period ---
+        AddFiscalQuarterDays = Table.AddColumn (
+            AddFiscalQuarterOffset,
+            "FiscalQuarterDays",
+            each Duration.Days ( [FiscalQuarterEndDate] - [FiscalQuarterStartDate] ) + 1,
+            Int32.Type
+        ),
+
+        AddFiscalYearDays = Table.AddColumn (
+            AddFiscalQuarterDays,
+            "FiscalYearDays",
+            each Duration.Days ( [FiscalYearEndDate] - [FiscalYearStartDate] ) + 1,
+            Int32.Type
+        ),
+
+        AddFiscalDayOfQuarter = Table.AddColumn (
+            AddFiscalYearDays,
+            "FiscalDayOfQuarter",
+            each Duration.Days ( [Date] - [FiscalQuarterStartDate] ) + 1,
+            Int32.Type
+        ),
+
+        AddFiscalDayOfYear = Table.AddColumn (
+            AddFiscalDayOfQuarter,
+            "FiscalDayOfYear",
+            each Duration.Days ( [Date] - [FiscalYearStartDate] ) + 1,
+            Int32.Type
+        ),
+
+        // --- Fiscal year offset ---
+        AsOfFiscalYear = AsOfFiscalYearStartYear + FYEndAdd,
+
+        AddFiscalYearOffset = Table.AddColumn (
+            AddFiscalDayOfYear,
+            "FiscalYearOffset",
+            each [FiscalYear] - AsOfFiscalYear,
+            Int32.Type
         )
     in
-        AddFiscalQuarterOffset
+        AddFiscalYearOffset

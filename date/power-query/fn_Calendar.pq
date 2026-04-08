@@ -369,6 +369,94 @@
             "CalendarQuarterOffset",
             each [CalendarQuarterIndex] - AsOfCalQuarterIndex,
             Int32.Type
+        ),
+        // --- Year boundary dates ---
+        AddYearStartDate = Table.AddColumn (
+            AddCalQuarterOffset,
+            "YearStartDate",
+            each #date ( [Year], 1, 1 ),
+            type date
+        ),
+        AddYearEndDate = Table.AddColumn (
+            AddYearStartDate,
+            "YearEndDate",
+            each #date ( [Year], 12, 31 ),
+            type date
+        ),
+        // --- Period duration columns ---
+        AddMonthDays = Table.AddColumn (
+            AddYearEndDate,
+            "MonthDays",
+            each Duration.Days ( [MonthEndDate] - [MonthStartDate] ) + 1,
+            Int32.Type
+        ),
+        AddQuarterDays = Table.AddColumn (
+            AddMonthDays,
+            "QuarterDays",
+            each Duration.Days ( [QuarterEndDate] - [QuarterStartDate] ) + 1,
+            Int32.Type
+        ),
+        AddYearDays = Table.AddColumn (
+            AddQuarterDays,
+            "YearDays",
+            each Duration.Days ( [YearEndDate] - [YearStartDate] ) + 1,
+            Int32.Type
+        ),
+        // --- Day of quarter ---
+        AddDayOfQuarter = Table.AddColumn (
+            AddYearDays,
+            "DayOfQuarter",
+            each Duration.Days ( [Date] - [QuarterStartDate] ) + 1,
+            Int32.Type
+        ),
+        // --- DatePrevious columns ---
+        AddDatePreviousWeek = Table.AddColumn (
+            AddDayOfQuarter,
+            "DatePreviousWeek",
+            each Date.AddDays ( [Date], -7 ),
+            type date
+        ),
+        AddDatePreviousMonth = Table.AddColumn (
+            AddDatePreviousWeek,
+            "DatePreviousMonth",
+            each
+                if [Date] = [MonthEndDate] then
+                    Date.EndOfMonth ( Date.AddMonths ( [Date], -1 ) )
+                else
+                    let
+                        prev = Date.AddMonths ( [Date], -1 ),
+                        prevEnd = Date.EndOfMonth ( prev )
+                    in
+                        if [Day] > Date.Day ( prevEnd ) then prevEnd else prev,
+            type date
+        ),
+        AddDatePreviousQuarter = Table.AddColumn (
+            AddDatePreviousMonth,
+            "DatePreviousQuarter",
+            each
+                if [Date] = [MonthEndDate] then
+                    Date.EndOfMonth ( Date.AddMonths ( [Date], -3 ) )
+                else
+                    let
+                        prev = Date.AddMonths ( [Date], -3 ),
+                        prevEnd = Date.EndOfMonth ( prev )
+                    in
+                        if [Day] > Date.Day ( prevEnd ) then prevEnd else prev,
+            type date
+        ),
+        AddDatePreviousYear = Table.AddColumn (
+            AddDatePreviousQuarter,
+            "DatePreviousYear",
+            each
+                if [Date] = [MonthEndDate] then
+                    Date.EndOfMonth ( Date.AddMonths ( [Date], -12 ) )
+                else
+                    let
+                        prev = Date.AddMonths ( [Date], -12 ),
+                        prevEnd = Date.EndOfMonth ( prev )
+                    in
+                        if [Day] > Date.Day ( prevEnd ) then prevEnd else prev,
+            type date
         )
     in
-        AddCalQuarterOffset
+        AddDatePreviousYear
