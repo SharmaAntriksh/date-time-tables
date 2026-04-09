@@ -1,4 +1,4 @@
-# Time Dimension Table — Python
+# Time Dimension Table - Python
 
 Standalone script that generates a minute-grain time dimension table (1,440 rows) and outputs it as CSV or Parquet.
 

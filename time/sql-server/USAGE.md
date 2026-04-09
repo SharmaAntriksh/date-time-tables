@@ -1,4 +1,4 @@
-# Time Dimension Table — SQL Server
+# Time Dimension Table - SQL Server
 
 Stored procedure that generates a complete time dimension table at second or minute grain. Returns a result set or persists to a permanent table.
 
@@ -101,22 +101,6 @@ EXEC dbo.usp_TimeTable
     @IncludeLabels     = 1,
     @ColumnNamingStyle = 'Spaced',
     @OutputTable       = 'dbo.DimTime';
-```
-
-### Combined Date + Time Tables
-
-```sql
--- Create both dimension tables together
-EXEC dbo.usp_DateTable
-    @StartDate        = '2021-01-01',
-    @EndDate          = '2026-12-31',
-    @AsOfDate         = '2025-04-05',
-    @FiscalStartMonth = 5,
-    @OutputTable      = 'dbo.DimDate';
-
-EXEC dbo.usp_TimeTable
-    @Grain       = 'Minute',
-    @OutputTable = 'dbo.DimTime';
 ```
 
 ## Column Reference

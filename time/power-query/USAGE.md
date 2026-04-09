@@ -1,4 +1,4 @@
-# Time Dimension Table — Power Query
+# Time Dimension Table - Power Query
 
 Function that generates a time dimension table at second or minute grain.
 
