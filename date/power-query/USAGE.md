@@ -6,18 +6,18 @@ Two options: **modular** (five queries wired together) or **standalone** (single
 
 | File | Role |
 |---|---|
-| `fn_Calendar.pq` | Base calendar columns and as-of relative offsets |
-| `fn_ISOWeeks.pq` | ISO-8601 week columns |
-| `fn_Fiscal.pq` | Monthly fiscal year columns |
-| `fn_WeeklyFiscal.pq` | Weekly fiscal (4-4-5) columns |
-| `fn_Orchestrate.pq` | Orchestrator — calls the above in sequence |
-| `fn_DateTable.pq` | Standalone alternative — all logic in one file |
+| `functions/fn_Calendar.pq` | Base calendar columns and as-of relative offsets |
+| `functions/fn_ISOWeeks.pq` | ISO-8601 week columns |
+| `functions/fn_Fiscal.pq` | Monthly fiscal year columns |
+| `functions/fn_WeeklyFiscal.pq` | Weekly fiscal (4-4-5) columns |
+| `functions/fn_Orchestrate.pq` | Orchestrator - calls the above in sequence |
+| `fn_DateTable.pq` | Standalone alternative - all logic in one file |
 
 ## Setup
 
 ### Modular (fn_Orchestrate)
 
-1. Import all five `fn_*.pq` files as queries in Power BI Desktop (Home > Transform Data > New Source > Blank Query, then paste each file's contents into the Advanced Editor)
+1. Import all five `fn_*.pq` files from `functions/` as queries in Power BI Desktop (Home > Transform Data > New Source > Blank Query, then paste each file's contents into the Advanced Editor)
 2. The query names must match exactly: `fn_Calendar`, `fn_ISOWeeks`, `fn_Fiscal`, `fn_WeeklyFiscal`, `fn_Orchestrate`
 3. Invoke `fn_Orchestrate` with your parameters
 

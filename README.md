@@ -18,7 +18,9 @@ date-time-tables/
 ├── date/
 │   ├── python/              # Standalone Python generator
 │   ├── sql-server/          # T-SQL stored procedure
-│   └── power-query/         # Modular & standalone Power Query functions
+│   └── power-query/
+│       ├── functions/       # Modular building blocks + orchestrator
+│       └── fn_DateTable.pq  # Standalone (all logic in one file)
 ├── time/
 │   ├── python/              # Standalone Python generator
 │   ├── sql-server/          # T-SQL stored procedure
@@ -62,7 +64,7 @@ EXEC dbo.usp_TimeTable @Grain = 'minute';
 
 ### Power Query
 
-Import `fn_DateTable.pq` (standalone) or the modular functions (`fn_Calendar.pq`, `fn_ISOWeeks.pq`, `fn_Fiscal.pq`, `fn_WeeklyFiscal.pq`, `fn_Orchestrate.pq`) into Power BI or Excel. See the included `Date Table.pbix` for a working example.
+Import `fn_DateTable.pq` (standalone) or the modular functions in `functions/` (`fn_Calendar.pq`, `fn_ISOWeeks.pq`, `fn_Fiscal.pq`, `fn_WeeklyFiscal.pq`, `fn_Orchestrate.pq`) into Power BI or Excel. See the included `Date Table.pbix` for a working example.
 
 ## Parameters
 
