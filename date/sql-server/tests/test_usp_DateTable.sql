@@ -286,15 +286,18 @@ END TRY BEGIN CATCH
         INSERT INTO #Fail VALUES ('V4: malformed @OutputTable rejected', 'wrong error: ' + ERROR_MESSAGE());
 END CATCH;
 
--- V5: an empty schema part must be rejected. Depending on PARSENAME it is caught
--- either up front ('Invalid @OutputTable name') or by the failing SELECT INTO
--- inside the proc's own TRY/CATCH; either way it must raise rather than silently
--- create a mis-named table, so here we only require that it threw.
+-- V5: an empty schema part ('.DimDate') must be rejected up front. Without the
+-- pattern check it resolves to dbo.DimDate and the proc would drop/overwrite a
+-- real table of that name, so this must raise 'Invalid @OutputTable name' and
+-- must NOT create any table.
 BEGIN TRY
     EXEC dbo.usp_DateTable @StartDate='2025-01-01', @EndDate='2025-12-31', @AsOfDate='2025-06-01',
         @OutputTable='.DimDate'; -- empty schema part
     INSERT INTO #Fail VALUES ('V5: empty-part @OutputTable rejected', 'no error raised');
-END TRY BEGIN CATCH END CATCH;
+END TRY BEGIN CATCH
+    IF ERROR_MESSAGE() NOT LIKE '%Invalid @OutputTable%'
+        INSERT INTO #Fail VALUES ('V5: empty-part @OutputTable rejected', 'wrong error: ' + ERROR_MESSAGE());
+END CATCH;
 
 ---------------------------------------------------------------------
 -- Cleanup + report

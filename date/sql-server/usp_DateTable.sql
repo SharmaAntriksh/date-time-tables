@@ -159,13 +159,16 @@ PARAMETERS:
     END;
 
     -- Validate @OutputTable up front (fail fast before building the table).
-    -- Reject > 4 parts or an empty object/schema part (e.g. '.Tbl', 'Tbl.',
-    -- 'a..b'); PARSENAME would otherwise pass these through to a SELECT INTO that
-    -- fails deep inside the build instead of here.
+    -- Reject > 4 parts (PARSENAME returns NULL) or an empty part - a leading dot
+    -- ('.Tbl'), trailing dot ('Tbl.'), or doubled dot ('a..b'). PARSENAME returns
+    -- NULL (not '') for an empty part and ISNULL would then backfill the schema, so
+    -- '.DimDate' would otherwise resolve to dbo.DimDate and silently drop/overwrite
+    -- a real table of that name; empty parts must be caught by pattern, not PARSENAME.
     IF @OutputTable IS NOT NULL
         AND (PARSENAME(@OutputTable, 1) IS NULL
-            OR PARSENAME(@OutputTable, 1) = N''
-            OR PARSENAME(@OutputTable, 2) = N'')
+            OR LTRIM(RTRIM(@OutputTable)) LIKE N'.%'
+            OR LTRIM(RTRIM(@OutputTable)) LIKE N'%.'
+            OR @OutputTable LIKE N'%..%')
     BEGIN
         RAISERROR(N'Invalid @OutputTable name: %s', 16, 1, @OutputTable);
         RETURN;
