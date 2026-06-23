@@ -535,22 +535,28 @@ def _add_weekly_fiscal_columns(
     is_working_day = is_work.astype(bool)
     day_type = np.where(is_work, "Working Day", "Non-Working Day")
 
-    # Boundaries within weekly fiscal month/quarter
-    tmp = pd.DataFrame(
-        {
-            "Date": df["Date"],
-            "FWMonthIndex": fw_year_month,
-            "FWQuarterIndex": fw_year_quarter,
-        },
-        index=df.index,
+    # Boundaries within weekly fiscal month/quarter - derived arithmetically from
+    # the 4-4-5 week pattern, NOT from a groupby min/max over the dates present in
+    # the frame. A groupby clips the first/last *partial* fiscal period to the table
+    # edge (so FWStartOfMonth = the table's first date and FWDayOfMonth undercounts);
+    # the arithmetic form is correct for any range and identical for interior periods.
+    # week_in_month: 1-based week index within the fiscal month given the month's
+    # position in the quarter (month 1 spans weeks 1..w1, month 2 w1+1..w1+w2, etc.).
+    week_in_month = np.select(
+        [m_in_q == 1, m_in_q == 2],
+        [week_in_q, week_in_q - w1],
+        default=week_in_q - (w1 + w2),
+    ).astype(int)
+    wdn = week_day_num.to_numpy()  # weekday position within the week (1..7)
+    fw_day_of_month = pd.Series(
+        ((week_in_month - 1) * 7 + wdn).astype(np.int32), index=df.index
     )
-    fw_start_month = tmp.groupby("FWMonthIndex")["Date"].transform("min")
-    fw_end_month = tmp.groupby("FWMonthIndex")["Date"].transform("max")
-    fw_day_of_month = (df["Date"] - fw_start_month).dt.days.add(1).astype(np.int32)
-
-    fw_start_quarter = tmp.groupby("FWQuarterIndex")["Date"].transform("min")
-    fw_end_quarter = tmp.groupby("FWQuarterIndex")["Date"].transform("max")
-    fw_day_of_quarter = (df["Date"] - fw_start_quarter).dt.days.add(1).astype(np.int32)
+    fw_day_of_quarter = pd.Series(
+        ((week_in_q - 1) * 7 + wdn).astype(np.int32), index=df.index
+    )
+    fw_start_month = df["Date"] - pd.to_timedelta(fw_day_of_month - 1, unit="D")
+    fw_start_quarter = df["Date"] - pd.to_timedelta(fw_day_of_quarter - 1, unit="D")
+    # fw_end_month / fw_end_quarter are derived from the period lengths below.
 
     # Period duration columns (derived from week pattern, not groupby boundaries)
     is_53_week_year = ((fw_end_year - fw_start_year).dt.days >= 370)
@@ -570,6 +576,16 @@ def _add_weekly_fiscal_columns(
     fw_quarter_days = ((base_quarter_weeks + extra_quarter_week) * 7).astype(np.int32)
 
     fw_year_days = (fw_end_year - fw_start_year).dt.days.add(1).astype(np.int32)
+
+    # End-of-period boundaries: start + (period length - 1). Derived from the
+    # arithmetic period lengths above (not a groupby max), so the trailing partial
+    # fiscal month/quarter reports its true end rather than the table's last date.
+    fw_end_month = fw_start_month + pd.to_timedelta(
+        pd.Series(fw_month_days, index=df.index) - 1, unit="D"
+    )
+    fw_end_quarter = fw_start_quarter + pd.to_timedelta(
+        pd.Series(fw_quarter_days, index=df.index) - 1, unit="D"
+    )
 
     # FW DatePrevious (computed from week pattern, not groupby)
     # Previous FW month length (based on position in quarter pattern)
@@ -650,12 +666,14 @@ def _add_weekly_fiscal_columns(
         + " - "
         + y
     )
-    fw_month_label = (
-        "FM " + (fw_start_month + pd.Timedelta(days=14)).dt.strftime("%b") + " - " + y
+    # Representative calendar month = the month containing the fiscal month's
+    # midpoint. Use the true period length (28/35/42) rather than a fixed +14 days,
+    # which lands in the first third of 5-/6-week months and can mislabel them.
+    fw_month_mid = fw_start_month + pd.to_timedelta(
+        pd.Series(fw_month_days, index=df.index) // 2, unit="D"
     )
-    fw_year_month_label = (
-        "FM " + (fw_start_month + pd.Timedelta(days=14)).dt.strftime("%b %Y")
-    )
+    fw_month_label = "FM " + fw_month_mid.dt.strftime("%b") + " - " + y
+    fw_year_month_label = "FM " + fw_month_mid.dt.strftime("%b %Y")
 
     new_cols = pd.DataFrame(
         {

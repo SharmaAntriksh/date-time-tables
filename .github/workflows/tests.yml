@@ -1,0 +1,71 @@
+name: tests
+
+on:
+  push:
+    paths:
+      - "date/**"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    paths:
+      - "date/**"
+      - ".github/workflows/tests.yml"
+
+jobs:
+  date-tables:
+    name: Date dimension tests (SQL + SQL/Python parity)
+    runs-on: ubuntu-latest
+
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Test@Passw0rd!"   # throwaway CI-only password
+        ports:
+          - 1433:1433
+
+    env:
+      SQLCMD: sqlcmd -S localhost -U sa -P Test@Passw0rd! -C -b
+      PARITY_CONN: "DRIVER={ODBC Driver 18 for SQL Server};SERVER=localhost;UID=sa;PWD=Test@Passw0rd!;DATABASE=TestDB;Encrypt=yes;TrustServerCertificate=yes"
+      PARITY_REQUIRED: "1"   # fail (not skip) if SQL Server is unreachable in CI
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install sqlcmd + ODBC driver (mssql-tools18, msodbcsql18)
+        run: |
+          curl -sSL -O https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/packages-microsoft-prod.deb
+          sudo dpkg -i packages-microsoft-prod.deb
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18 msodbcsql18 unixodbc-dev
+          echo "/opt/mssql-tools18/bin" >> "$GITHUB_PATH"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: pip install -r date/tests/requirements.txt
+
+      - name: Wait for SQL Server to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if $SQLCMD -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "SQL Server is up (attempt $i)."; exit 0
+            fi
+            echo "Waiting for SQL Server... ($i/30)"; sleep 5
+          done
+          echo "SQL Server did not become ready in time." >&2; exit 1
+
+      - name: Create test database
+        run: $SQLCMD -Q "IF DB_ID('TestDB') IS NULL CREATE DATABASE TestDB;"
+
+      - name: Deploy usp_DateTable
+        run: $SQLCMD -d TestDB -i date/sql-server/usp_DateTable.sql
+
+      - name: T-SQL regression tests
+        run: $SQLCMD -d TestDB -i date/sql-server/tests/test_usp_DateTable.sql
+
+      - name: SQL vs Python parity tests
+        run: pytest -q date/tests/test_parity.py

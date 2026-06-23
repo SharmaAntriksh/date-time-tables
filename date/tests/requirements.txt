@@ -1,0 +1,5 @@
+# Dependencies for the SQL-vs-Python parity tests (date/tests/test_parity.py).
+pandas
+numpy
+pyodbc
+pytest

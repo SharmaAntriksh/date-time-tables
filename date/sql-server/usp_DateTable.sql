@@ -63,6 +63,12 @@ AS
 BEGIN
     SET NOCOUNT ON;
 
+    -- Force deterministic English month/weekday names regardless of the caller's
+    -- session language (DATENAME(MONTH/WEEKDAY) is language-dependent). SET options
+    -- changed inside a procedure are restored when it returns, so the caller's
+    -- session language is not affected.
+    SET LANGUAGE N'us_english';
+
     ---------------------------------------------------------------------------
     -- Help
     ---------------------------------------------------------------------------
@@ -135,6 +141,36 @@ PARAMETERS:
         RETURN; -- no temp tables created yet, nothing to clean up
     END;
 
+    IF @EndDate < @StartDate
+    BEGIN
+        DECLARE @msgRange nvarchar(200) =
+            N'@EndDate (' + CONVERT(nvarchar(10), @EndDate, 23)
+            + N') must be on or after @StartDate (' + CONVERT(nvarchar(10), @StartDate, 23) + N').';
+        RAISERROR(@msgRange, 16, 1);
+        RETURN;
+    END;
+
+    -- Guard the number-generator capacity so the date range is never silently
+    -- truncated by the TOP clause (see the spine CTE below).
+    IF DATEDIFF(DAY, @StartDate, @EndDate) + 1 > 1000000
+    BEGIN
+        RAISERROR(N'Requested range exceeds the 1,000,000-day (~2,739 year) generator capacity. Narrow @StartDate / @EndDate.', 16, 1);
+        RETURN;
+    END;
+
+    -- Validate @OutputTable up front (fail fast before building the table).
+    -- Reject > 4 parts or an empty object/schema part (e.g. '.Tbl', 'Tbl.',
+    -- 'a..b'); PARSENAME would otherwise pass these through to a SELECT INTO that
+    -- fails deep inside the build instead of here.
+    IF @OutputTable IS NOT NULL
+        AND (PARSENAME(@OutputTable, 1) IS NULL
+            OR PARSENAME(@OutputTable, 1) = N''
+            OR PARSENAME(@OutputTable, 2) = N'')
+    BEGIN
+        RAISERROR(N'Invalid @OutputTable name: %s', 16, 1, @OutputTable);
+        RETURN;
+    END;
+
     ---------------------------------------------------------------------------
     -- Parameter normalization
     ---------------------------------------------------------------------------
@@ -146,7 +182,7 @@ PARAMETERS:
     DECLARE @FYEndAdd int = CASE WHEN @FYStartMonth = 1 THEN 0 ELSE 1 END;
 
     -- Weekly fiscal parameter normalization
-    DECLARE @FDOW    int          = @FirstDayOfWeek % 7;
+    DECLARE @FDOW    int          = ((@FirstDayOfWeek % 7) + 7) % 7;  -- 0..6 even for negative input
     DECLARE @WType   nvarchar(10) = CASE WHEN UPPER(LTRIM(RTRIM(@WeeklyType))) = 'NEAREST' THEN N'Nearest' ELSE N'Last' END;
     DECLARE @QWT     nvarchar(3)  = CASE WHEN LTRIM(RTRIM(@QuarterWeekType)) IN ('445','454','544') THEN LTRIM(RTRIM(@QuarterWeekType)) ELSE '445' END;
     DECLARE @TSY     int          = CASE WHEN @TypeStartFiscalYear = 0 THEN 0 ELSE 1 END;
@@ -187,6 +223,15 @@ PARAMETERS:
     ---------------------------------------------------------------------------
     -- Create result table
     ---------------------------------------------------------------------------
+    -- Drop temp tables left over from a previous cancelled run on this session so
+    -- a reused (pooled) connection does not collide on CREATE.
+    IF OBJECT_ID('tempdb..#FWBounds')  IS NOT NULL DROP TABLE #FWBounds;
+    IF OBJECT_ID('tempdb..#DateTable') IS NOT NULL DROP TABLE #DateTable;
+
+    -- All table-building work runs inside TRY: on any failure the CATCH block
+    -- drops the temp tables and re-raises the original error to the caller.
+    BEGIN TRY
+
     CREATE TABLE #DateTable (
         -- Phase 1: Base Calendar
         [Date]                  date        NOT NULL PRIMARY KEY,
@@ -330,15 +375,16 @@ PARAMETERS:
     -- PHASE 1-3: Base Calendar + ISO Weeks + Monthly Fiscal
     ---------------------------------------------------------------------------
     ;WITH
-    -- Number generator (supports up to 100,000 dates ~ 273 years)
+    -- Number generator (supports up to 1,000,000 dates ~ 2,739 years; the range is
+    -- validated against this capacity above, so TOP never silently truncates).
     E1(N) AS (SELECT 1 FROM (VALUES(1),(1),(1),(1),(1),(1),(1),(1),(1),(1)) v(n)),
     E2(N) AS (SELECT 1 FROM E1 a CROSS JOIN E1 b),
     E4(N) AS (SELECT 1 FROM E2 a CROSS JOIN E2 b),
-    E5(N) AS (SELECT 1 FROM E4 a CROSS JOIN E1 b),
+    E6(N) AS (SELECT 1 FROM E4 a CROSS JOIN E2 b),
     Nums AS (
         SELECT TOP (DATEDIFF(DAY, @StartDate, @EndDate) + 1)
             ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1 AS n
-        FROM E5
+        FROM E6
     ),
     Spine AS (
         SELECT CAST(DATEADD(DAY, n, @StartDate) AS date) AS d
@@ -726,38 +772,42 @@ PARAMETERS:
         WHERE FWYearNumber IS NOT NULL;
 
         -----------------------------------------------------------------------
-        -- Pass 4: Month/quarter boundaries via window functions
+        -- Pass 4: Month/quarter day-of-period + start boundaries, derived
+        -- arithmetically from the 4-4-5 week pattern. A windowed MIN/MAX over
+        -- the dates present in the table clips the first and last (partial)
+        -- fiscal period to the table edge (the leading partial month would
+        -- report FWStartOfMonth = the table's first date and undercount
+        -- FWDayOfMonth); the arithmetic form is correct for any range and is
+        -- identical to the window result for fully-present interior periods.
+        -- End boundaries are derived from the period lengths in Pass 6b.
         -----------------------------------------------------------------------
-        ;WITH Boundaries AS (
-            SELECT
-                [Date],
-                MIN([Date]) OVER (PARTITION BY FWMonthIndex)   AS MoStart,
-                MAX([Date]) OVER (PARTITION BY FWMonthIndex)   AS MoEnd,
-                MIN([Date]) OVER (PARTITION BY FWQuarterIndex) AS QtrStart,
-                MAX([Date]) OVER (PARTITION BY FWQuarterIndex) AS QtrEnd
-            FROM #DateTable
-            WHERE FWYearNumber IS NOT NULL
-        )
-        UPDATE dt
+        -- week-in-month = week-in-quarter minus the weeks consumed by earlier
+        -- months of the quarter (0, W1, or W1+W2).
+        UPDATE #DateTable
         SET
-            FWStartOfMonth  = b.MoStart,
-            FWEndOfMonth    = b.MoEnd,
-            FWDayOfMonth    = DATEDIFF(DAY, b.MoStart, dt.[Date]) + 1,
-            FWStartOfQuarter = b.QtrStart,
-            FWEndOfQuarter  = b.QtrEnd,
-            FWDayOfQuarter  = DATEDIFF(DAY, b.QtrStart, dt.[Date]) + 1
-        FROM #DateTable dt
-        JOIN Boundaries b ON dt.[Date] = b.[Date];
+            FWDayOfMonth = ((FWWeekInQuarterNumber
+                - CASE
+                    WHEN FWWeekInQuarterNumber <= @W1 THEN 0
+                    WHEN FWWeekInQuarterNumber <= @W1 + @W2 THEN @W1
+                    ELSE @W1 + @W2
+                  END) - 1) * 7 + FWWeekDayNumber,
+            FWDayOfQuarter = (FWWeekInQuarterNumber - 1) * 7 + FWWeekDayNumber
+        WHERE FWYearNumber IS NOT NULL;
+
+        UPDATE #DateTable
+        SET
+            FWStartOfMonth   = DATEADD(DAY, -(FWDayOfMonth - 1), [Date]),
+            FWStartOfQuarter = DATEADD(DAY, -(FWDayOfQuarter - 1), [Date])
+        WHERE FWYearNumber IS NOT NULL;
 
         -----------------------------------------------------------------------
         -- Pass 5: Labels needing boundaries + offsets
         -----------------------------------------------------------------------
+        -- FWMonthLabel / FWYearMonthLabel are set in Pass 6b, where the fiscal
+        -- month length (FWMonthDays) is available to locate the month's true
+        -- midpoint.
         UPDATE #DateTable
         SET
-            FWMonthLabel = N'FM ' + LEFT(DATENAME(MONTH, DATEADD(DAY, 14, FWStartOfMonth)), 3)
-                + N' - ' + CAST(FWYearNumber AS varchar(4)),
-            FWYearMonthLabel = N'FM ' + LEFT(DATENAME(MONTH, DATEADD(DAY, 14, FWStartOfMonth)), 3)
-                + N' ' + CAST(YEAR(DATEADD(DAY, 14, FWStartOfMonth)) AS varchar(4)),
             FWWeekDateRange = LEFT(DATENAME(MONTH, FWStartOfWeek), 3)
                 + N' ' + RIGHT('0' + CAST(DAY(FWStartOfWeek) AS varchar(2)), 2)
                 + N' - '
@@ -851,6 +901,25 @@ PARAMETERS:
                         AND (SELECT DATEDIFF(DAY, b2.FWStart, b2.FWEnd) FROM #FWBounds b2 WHERE b2.FWYear = FWYearNumber - 1) >= 370
                         THEN 1 ELSE 0 END) * 7, [Date])
             END
+        WHERE FWYearNumber IS NOT NULL;
+
+        -----------------------------------------------------------------------
+        -- Pass 6b: End boundaries + month labels (need FWMonthDays /
+        -- FWQuarterDays from Pass 6). End = start + (length - 1), derived from
+        -- the arithmetic period lengths rather than a windowed MAX, so the
+        -- trailing partial period reports its true end. FWMonthLabel names the
+        -- calendar month containing the fiscal month's true midpoint
+        -- (length / 2), not a fixed +14 days, which lands in the first third of
+        -- 5-/6-week months and can mislabel them.
+        -----------------------------------------------------------------------
+        UPDATE #DateTable
+        SET
+            FWEndOfMonth     = DATEADD(DAY, FWMonthDays - 1, FWStartOfMonth),
+            FWEndOfQuarter   = DATEADD(DAY, FWQuarterDays - 1, FWStartOfQuarter),
+            FWMonthLabel     = N'FM ' + LEFT(DATENAME(MONTH, DATEADD(DAY, FWMonthDays / 2, FWStartOfMonth)), 3)
+                + N' - ' + CAST(FWYearNumber AS varchar(4)),
+            FWYearMonthLabel = N'FM ' + LEFT(DATENAME(MONTH, DATEADD(DAY, FWMonthDays / 2, FWStartOfMonth)), 3)
+                + N' ' + CAST(YEAR(DATEADD(DAY, FWMonthDays / 2, FWStartOfMonth)) AS varchar(4))
         WHERE FWYearNumber IS NOT NULL;
 
         DROP TABLE #FWBounds;
@@ -1034,16 +1103,10 @@ PARAMETERS:
 
     IF @OutputTable IS NOT NULL
     BEGIN
-        -- Parse schema and table name (default schema = dbo)
+        -- Parse schema and table name (default schema = dbo). The name was
+        -- validated up front, so both parts are guaranteed non-empty here.
         DECLARE @SchemaName sysname = ISNULL(PARSENAME(@OutputTable, 2), N'dbo');
         DECLARE @ObjName   sysname = PARSENAME(@OutputTable, 1);
-
-        IF @ObjName IS NULL
-        BEGIN
-            RAISERROR(N'Invalid table name: %s', 16, 1, @OutputTable);
-            DROP TABLE #DateTable;
-            RETURN;
-        END;
 
         -- Check if table already exists
         DECLARE @FullName nvarchar(256) = QUOTENAME(@SchemaName) + N'.' + QUOTENAME(@ObjName);
@@ -1074,4 +1137,13 @@ PARAMETERS:
     END;
 
     DROP TABLE #DateTable;
+
+    END TRY
+    BEGIN CATCH
+        -- Leave the session clean (pooled connections are reused), then re-raise
+        -- the original error with its message, severity, and state intact.
+        IF OBJECT_ID('tempdb..#FWBounds')  IS NOT NULL DROP TABLE #FWBounds;
+        IF OBJECT_ID('tempdb..#DateTable') IS NOT NULL DROP TABLE #DateTable;
+        THROW;
+    END CATCH;
 END;
