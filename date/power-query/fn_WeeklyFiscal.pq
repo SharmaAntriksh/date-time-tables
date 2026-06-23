@@ -36,6 +36,7 @@
         // Weeks per period in each quarter (e.g. 4-4-5)
         W1 = Number.FromText ( Text.At ( QWT, 0 ) ),
         W2 = Number.FromText ( Text.At ( QWT, 1 ) ),
+        W3 = 13 - W1 - W2,
 
         // --- Helper: weekday number (1..7) relative to FirstDayOfWeek ---
         // Input: a date. Output: 1 = FirstDayOfWeek, 7 = day before FirstDayOfWeek
@@ -46,6 +47,28 @@
                 pos0 = Number.Mod ( sun0 - FDOW + 7, 7 )
             in
                 pos0 + 1,
+
+        // --- Helper: 53-week ("long") fiscal year test (371 days vs 364) ---
+        // Single home for the 53-week threshold; used by the length helpers below.
+        FWIsLongYear = ( fwStartOfYear as date, fwEndOfYear as date ) as logical =>
+            Duration.Days ( fwEndOfYear - fwStartOfYear ) >= 370,
+
+        // --- Helper: days in a fiscal month from the 4-4-5 pattern ---
+        // base weeks per month-in-quarter (W1/W2/W3) plus one extra week for
+        // month 3 of Q4 in a 53-week year. Single source of truth shared by the
+        // month boundaries, FWMonthDays, and the month labels. Mirrors
+        // usp_DateTable Pass 6.
+        FWMonthLengthDays = ( fwMonthNumber as number, fwQuarterNumber as number, is53 as logical ) as number =>
+            let
+                r     = Number.Mod ( fwMonthNumber, 3 ),
+                base  = if r = 1 then W1 else if r = 2 then W2 else W3,
+                extra = if r = 0 and fwQuarterNumber = 4 and is53 then 1 else 0
+            in
+                ( base + extra ) * 7,
+
+        // --- Helper: days in a fiscal quarter (13 weeks, +1 for Q4 of 53-week year) ---
+        FWQuarterLengthDays = ( fwQuarterNumber as number, is53 as logical ) as number =>
+            ( 13 + ( if fwQuarterNumber = 4 and is53 then 1 else 0 ) ) * 7,
 
         // --- Helper: compute fiscal year start date for a given FW year number ---
         FYBoundaryStart = ( fwYearNumber as number ) as date =>
@@ -244,69 +267,74 @@
             type text
         ),
 
-        // --- FW Month boundaries (min/max date per FWMonthIndex) ---
-        MonthBounds = Table.Group (
-            Table.SelectColumns ( AddFWDayType, { "Date", "FWMonthIndex" } ),
-            { "FWMonthIndex" },
-            {
-                { "FWMonthMin", each List.Min ( [Date] ), type date },
-                { "FWMonthMax", each List.Max ( [Date] ), type date }
-            }
-        ),
-        JoinMonth = Table.NestedJoin (
-            AddFWDayType,
-            { "FWMonthIndex" },
-            MonthBounds,
-            { "FWMonthIndex" },
-            "MB",
-            JoinKind.LeftOuter
-        ),
-        ExpandMonth = Table.ExpandTableColumn ( JoinMonth, "MB", { "FWMonthMin", "FWMonthMax" } ),
-        RenameFWStartOfMonth = Table.RenameColumns (
-            ExpandMonth,
-            { { "FWMonthMin", "FWStartOfMonth" }, { "FWMonthMax", "FWEndOfMonth" } }
-        ),
+        // --- FW Month / Quarter day-of-period + boundaries (arithmetic) ---
+        // Derived from the 4-4-5 week pattern, NOT a MIN/MAX over the dates
+        // present in the table. A group MIN/MAX clips the leading and trailing
+        // (partial) fiscal period to the table edge - the leading partial month
+        // would report FWStartOfMonth = the table's first date and undercount
+        // FWDayOfMonth. The arithmetic form is correct for any range and equals
+        // the group result for fully-present interior periods. Mirrors
+        // usp_DateTable Pass 4 (start) and Pass 6b (end).
         AddFWDayOfMonth = Table.AddColumn (
-            RenameFWStartOfMonth,
+            AddFWDayType,
             "FWDayOfMonth",
-            each Duration.Days ( [Date] - [FWStartOfMonth] ) + 1,
+            each
+                let
+                    wiq         = [FWWeekInQuarterNumber],
+                    weeksBefore = if wiq <= W1 then 0 else if wiq <= ( W1 + W2 ) then W1 else W1 + W2
+                in
+                    ( ( wiq - weeksBefore ) - 1 ) * 7 + [FWWeekDayNumber],
             Int32.Type
         ),
-
-        // --- FW Quarter boundaries (min/max date per FWQuarterIndex) ---
-        QuarterBounds = Table.Group (
-            Table.SelectColumns ( AddFWDayType, { "Date", "FWQuarterIndex" } ),
-            { "FWQuarterIndex" },
-            {
-                { "FWQtrMin", each List.Min ( [Date] ), type date },
-                { "FWQtrMax", each List.Max ( [Date] ), type date }
-            }
-        ),
-        JoinQuarter = Table.NestedJoin (
+        AddFWStartOfMonth = Table.AddColumn (
             AddFWDayOfMonth,
-            { "FWQuarterIndex" },
-            QuarterBounds,
-            { "FWQuarterIndex" },
-            "QB",
-            JoinKind.LeftOuter
+            "FWStartOfMonth",
+            each Date.AddDays ( [Date], - ( [FWDayOfMonth] - 1 ) ),
+            type date
         ),
-        ExpandQuarter = Table.ExpandTableColumn ( JoinQuarter, "QB", { "FWQtrMin", "FWQtrMax" } ),
-        RenameFWStartOfQuarter = Table.RenameColumns (
-            ExpandQuarter,
-            { { "FWQtrMin", "FWStartOfQuarter" }, { "FWQtrMax", "FWEndOfQuarter" } }
+        AddFWEndOfMonth = Table.AddColumn (
+            AddFWStartOfMonth,
+            "FWEndOfMonth",
+            each Date.AddDays (
+                [FWStartOfMonth],
+                FWMonthLengthDays (
+                    [FWMonthNumber],
+                    [FWQuarterNumber],
+                    FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] )
+                ) - 1
+            ),
+            type date
         ),
         AddFWDayOfQuarter = Table.AddColumn (
-            RenameFWStartOfQuarter,
+            AddFWEndOfMonth,
             "FWDayOfQuarter",
-            each Duration.Days ( [Date] - [FWStartOfQuarter] ) + 1,
+            each ( [FWWeekInQuarterNumber] - 1 ) * 7 + [FWWeekDayNumber],
             Int32.Type
+        ),
+        AddFWStartOfQuarter = Table.AddColumn (
+            AddFWDayOfQuarter,
+            "FWStartOfQuarter",
+            each Date.AddDays ( [Date], - ( [FWDayOfQuarter] - 1 ) ),
+            type date
+        ),
+        AddFWEndOfQuarter = Table.AddColumn (
+            AddFWStartOfQuarter,
+            "FWEndOfQuarter",
+            each Date.AddDays (
+                [FWStartOfQuarter],
+                FWQuarterLengthDays (
+                    [FWQuarterNumber],
+                    FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] )
+                ) - 1
+            ),
+            type date
         ),
 
         // Global week index anchor: 1900-12-30 is the Excel epoch (day 0);
         // offset by FDOW so week boundaries align with the chosen first day of week.
         FirstWeekReference = Date.AddDays ( #date ( 1900, 12, 30 ), FDOW ),
         AddFWWeekIndex = Table.AddColumn (
-            AddFWDayOfQuarter,
+            AddFWEndOfQuarter,
             "FWWeekIndex",
             each Number.IntegerDivide ( Duration.Days ( [Date] - FirstWeekReference ), 7 ) + 1,
             Int32.Type
@@ -338,14 +366,18 @@
             type text
         ),
 
-        // FWMonthLabel: use midpoint of fiscal month to get representative calendar month name
+        // FWMonthLabel: name the calendar month containing the fiscal month's
+        // true midpoint (length / 2), not a fixed +14 days. A +14 offset lands
+        // in the first third of a 5-week month and can mislabel it.
         AddFWMonthLabel = Table.AddColumn (
             AddFWPeriodLabel,
             "FWMonthLabel",
-            each "FM "
-                & Text.Start ( Date.MonthName ( Date.AddDays ( [FWStartOfMonth], 14 ) ), 3 )
-                & " - "
-                & Text.From ( [FWYearNumber] ),
+            each
+                let
+                    is53 = FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] ),
+                    mid  = Date.AddDays ( [FWStartOfMonth], Number.IntegerDivide ( FWMonthLengthDays ( [FWMonthNumber], [FWQuarterNumber], is53 ), 2 ) )
+                in
+                    "FM " & Text.Start ( Date.MonthName ( mid ), 3 ) & " - " & Text.From ( [FWYearNumber] ),
             type text
         ),
         AddFWYearMonthLabel = Table.AddColumn (
@@ -353,7 +385,8 @@
             "FWYearMonthLabel",
             each
                 let
-                    mid = Date.AddDays ( [FWStartOfMonth], 14 )
+                    is53 = FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] ),
+                    mid  = Date.AddDays ( [FWStartOfMonth], Number.IntegerDivide ( FWMonthLengthDays ( [FWMonthNumber], [FWQuarterNumber], is53 ), 2 ) )
                 in
                     "FM "
                         & Text.Start ( Date.MonthName ( mid ), 3 )
@@ -416,34 +449,25 @@
             Int32.Type
         ),
 
-        // --- FW period duration columns (derived from week pattern) ---
-        W3 = 13 - W1 - W2,
-
+        // --- FW period duration columns (shared length helpers) ---
         AddFWMonthDays = Table.AddColumn (
             AddFWQuarterOffset,
             "FWMonthDays",
-            each
-                let
-                    mInQ = if [FWWeekInQuarterNumber] <= W1 then 1
-                           else if [FWWeekInQuarterNumber] <= ( W1 + W2 ) then 2
-                           else 3,
-                    baseWeeks = if mInQ = 1 then W1 else if mInQ = 2 then W2 else W3,
-                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
-                    extra = if mInQ = 3 and [FWQuarterNumber] = 4 and is53Week then 1 else 0
-                in
-                    ( baseWeeks + extra ) * 7,
+            each FWMonthLengthDays (
+                [FWMonthNumber],
+                [FWQuarterNumber],
+                FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] )
+            ),
             Int32.Type
         ),
 
         AddFWQuarterDays = Table.AddColumn (
             AddFWMonthDays,
             "FWQuarterDays",
-            each
-                let
-                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
-                    extra = if [FWQuarterNumber] = 4 and is53Week then 1 else 0
-                in
-                    ( 13 + extra ) * 7,
+            each FWQuarterLengthDays (
+                [FWQuarterNumber],
+                FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] )
+            ),
             Int32.Type
         ),
 
@@ -471,7 +495,7 @@
                     prevIsQ4 = ( mInQ = 1 and [FWQuarterNumber] = 1 ),
                     prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
                     prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
-                    prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                    prevIs53 = if prevYearRow <> null then FWIsLongYear ( prevYearRow[FWStart], prevYearRow[FWEnd] ) else false,
                     prevExtra = if prevMInQ = 3 and ( if prevIsQ4 then true else [FWQuarterNumber] = 1 ) and prevIs53 then 1 else 0,
                     prevMonthLen = ( prevBaseWeeks + prevExtra ) * 7,
                     // Clamp: last day of month or day exceeds previous month
@@ -494,9 +518,9 @@
                     prevIsQ4 = [FWQuarterNumber] = 1,
                     prevFWYear = if prevIsQ4 then [FWYearNumber] - 1 else [FWYearNumber],
                     prevYearRow = try Table.SelectRows ( BoundsTable, each [FWYear] = prevFWYear ){0} otherwise null,
-                    prevIs53 = if prevYearRow <> null then Duration.Days ( prevYearRow[FWEnd] - prevYearRow[FWStart] ) >= 370 else false,
+                    prevIs53 = if prevYearRow <> null then FWIsLongYear ( prevYearRow[FWStart], prevYearRow[FWEnd] ) else false,
                     prevQtrLen = if prevIsQ4 and prevIs53 then 98 else 91,
-                    is53Week = Duration.Days ( [FWEndOfYear] - [FWStartOfYear] ) >= 370,
+                    is53Week = FWIsLongYear ( [FWStartOfYear], [FWEndOfYear] ),
                     currentQtrDays = if [FWQuarterNumber] = 4 and is53Week then 98 else 91,
                     isLastDay = [FWDayOfQuarter] = currentQtrDays,
                     clamp = isLastDay or [FWDayOfQuarter] > prevQtrLen

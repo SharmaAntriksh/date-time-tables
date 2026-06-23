@@ -187,6 +187,11 @@
             { "FWWeekOffset", "FW Week Offset" },
             { "FWMonthOffset", "FW Month Offset" },
             { "FWQuarterOffset", "FW Quarter Offset" },
+            { "FWMonthDays", "FW Month Days" },
+            { "FWQuarterDays", "FW Quarter Days" },
+            { "FWYearDays", "FW Year Days" },
+            { "FWDatePreviousMonth", "FW Date Previous Month" },
+            { "FWDatePreviousQuarter", "FW Date Previous Quarter" },
             // Weekly fiscal system label
             { "WeeklyFiscalSystem", "Weekly Fiscal System" }
         },
